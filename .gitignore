@@ -1,0 +1,21 @@
+# 大体积中间产物（可重算，不进 git）
+results/cache/
+results/*.log
+results/metrics/*_runs.parquet
+results/metrics/soc_sensitivity.parquet
+
+# 说明：docs/figures/*.png 是报告的配图，体积约 1 MB 总量，**进 git**，
+# 否则 GitHub 上的报告里所有图都是断链。
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+*.egg-info/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

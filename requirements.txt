@@ -1,0 +1,9 @@
+# 项目 A4 运行依赖（Python 3.12）
+# 环境：D:\项目\venvs\flsoh-py312
+numpy>=2.0
+pandas>=2.2
+pyarrow>=15.0
+scipy>=1.11
+openpyxl>=3.1      # 读 CALCE 的 Arbin .xlsx
+matplotlib>=3.8
+pytest>=8.0
