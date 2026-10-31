@@ -177,6 +177,17 @@ DOD（0.87–0.98）或实现**。滤波后口径的新边界：**white ≤ ~10 
 NCA 无一折进入可行区，「EKFQ 在 NCA 不行」的判词维持、理由更新。方向签名交叉
 验证通道：white 把 q 推向上、odd 拉向下，与真实数据的暖/冷温漂移方向一致。
 
+**white 的物理定性（v1.8）。** 合成正对照先标定探针检出力（纯噪声全平坦；已知
+快 RC 靠 ACF1=0.92 检出；慢滞回被 slow 滤掉、进不了 white）。判决：**H26「快极化
+动力学缺失」成立**（ACF1 +0.60、didt 比 3.33、边沿比 1.77 @ −20；残差化快 RC
+（τ=5 s）回归 R² 0.38、RMS 削减 21%）；**H27「充放滞回」弱过线**（仅 10 °C 充放
+比 1.39，ρ(hyst) 全温 ≤0.07）；**H28「测量噪声」被否**（有记忆 + di/dt 集中 +
+excess kurtosis +7.7~+30.3 重尾）。物理身份：**驱动电流是 ~0.5 A/s 斜坡不是阶跃，
+斜坡段表观 Δv/Δi 达 150–300 mV/A = 稳态 r0 的 2–2.4 倍**——white 是斜坡/边沿处
+建立的快极化缺失（τ≈5–10 s），冷温放大。模型族出口从「滞回/扩散态」细化为
+「**快极化支路 + 采样对齐**」（单快 RC 只削 21%）；滤波器侧对症重尾灌 q 的是
+innovation 鲁棒化（Huber/限幅，待测）。
+
 ## 安装
 
 ```bash
@@ -366,7 +377,14 @@ python scripts/28_ekfq_round4.py --stage h24  --dataset panasonic   # 约 8 min
 python scripts/28_ekfq_round4.py --stage h25  --dataset panasonic   # 秒级
 python scripts/29_round8_figures.py                       # 三张第八轮图
 
-python -m pytest tests -q                        # 115 项，不需要数据集
+# white 的物理定性（v1.8）：probe / H26 / H27 / H28
+python scripts/30_white_round5.py --stage probe --dataset panasonic   # 约 6 min
+python scripts/30_white_round5.py --stage h26  --dataset panasonic   # 秒级
+python scripts/30_white_round5.py --stage h27  --dataset panasonic   # 秒级
+python scripts/30_white_round5.py --stage h28  --dataset panasonic   # 秒级
+python scripts/31_round9_figures.py                       # 三张第九轮图
+
+python -m pytest tests -q                        # 125 项，不需要数据集
 ```
 
 ## 局限
@@ -400,8 +418,10 @@ python -m pytest tests -q                        # 115 项，不需要数据集
   出路（us06 尾折 −58%、EKF 中位 −26%）。第七轮（§10.12）把冷温小电流地板
   （59 mV @ −20）解剖成 34% 度量伪影 + 11% 未收敛状态 + 55% 真动态残差；
   动态块逐工况**非共享**（(u1,u2) 核与逐温度偏置/形状的 LOO 迁移都失败），
-  加阶也修不动——开环地板只是滤波器残差的上界，出路是模型族换结构
-  （滞回/扩散态），本轮未做。
+  加阶也修不动——开环地板只是滤波器残差的上界。第九轮（§10.14）定性了滤波后
+  最大块 white：**斜坡/边沿处的快极化缺失（τ≈5–10 s，表观 Δv/Δi 达稳态 r0 的
+  2–2.4 倍）**，出口细化为快极化支路 + 采样对齐（单快 RC 只削 21%），
+  滤波器侧配 innovation 鲁棒化对症重尾灌 q。
 - **电流偏置是给定的，不是估计的。** 滤波器只能靠电压反馈抵消它，不能估计它
   （作为第 5 个状态与 SOC 在平台区共线，不可辨识）。
 - **收敛数字略偏乐观**：保留了 300 s 静置窗口；要「第一拍就得准」的版本用 `--keep-rest 0`。

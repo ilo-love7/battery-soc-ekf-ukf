@@ -1,0 +1,52 @@
+{
+ "dataset": "panasonic",
+ "lines": {
+  "L1_acf1": 0.1,
+  "L2_unif": 1.3,
+  "L3_skew": 0.5,
+  "L3_kurt": 1.0
+ },
+ "checks": {
+  "L1_white": false,
+  "L2_uniform": false,
+  "L3_gauss": false
+ },
+ "per_temp": {
+  "-20": {
+   "acf_1s": 0.5952974756122665,
+   "didt_hi_lo_ratio": 3.3314121581710645,
+   "edge_early_late_ratio": 1.7678390709571519,
+   "white_skew": 0.009828272640472265,
+   "white_kurt": 7.669274407302556
+  },
+  "-10": {
+   "acf_1s": 0.5649148480483427,
+   "didt_hi_lo_ratio": 2.541496191765212,
+   "edge_early_late_ratio": 1.9980176969243268,
+   "white_skew": 0.056687010529128314,
+   "white_kurt": 14.052834647700022
+  },
+  "0": {
+   "acf_1s": 0.2960372841458117,
+   "didt_hi_lo_ratio": 2.7800858340710555,
+   "edge_early_late_ratio": 2.208280528648498,
+   "white_skew": -0.17360038365697675,
+   "white_kurt": 12.166929563622837
+  },
+  "10": {
+   "acf_1s": 0.07481467812876728,
+   "didt_hi_lo_ratio": 2.890838747912832,
+   "edge_early_late_ratio": 2.180049160821153,
+   "white_skew": 0.7189461122200922,
+   "white_kurt": 30.24998515833746
+  },
+  "25": {
+   "acf_1s": -0.08192441702393721,
+   "didt_hi_lo_ratio": 2.8365288176172614,
+   "edge_early_late_ratio": 2.1998220016859706,
+   "white_skew": -0.0908829277605005,
+   "white_kurt": 20.71359517229361
+  }
+ },
+ "verdict": "被否：ACF1 超线（有记忆）；分箱不均（didt/边沿集中）；分布形状非高斯"
+}

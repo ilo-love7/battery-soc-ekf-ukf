@@ -64,8 +64,17 @@ abstract: >-
   the revised filtered-metric feasibility limits are white <= ~10 mV and
   odd <= ~5-10 mV. No NCA fold enters the feasible zone, so the negative EKFQ
   verdict on NCA stands with updated reasons (failure boundary lives in residual
-  structure, not drive profile, DOD, or implementation).
-version: 1.7.0
+  structure, not drive profile, DOD, or implementation). A ninth round identifies
+  the white component physically: drive currents are ~0.5 A/s ramps (not steps) and
+  the apparent dV/di on ramps reaches 150-300 mV/A = 2-2.4x the steady r0, so white
+  is missing fast polarization dynamics (tau ~ 5-10 s) at current ramps/edges,
+  amplified at cold temperature. Pre-registered verdicts: fast-polarization loss
+  confirmed (ACF1 0.60, di/dt ratio 3.33, edge ratio 1.77, residualized fast-RC
+  R2 0.38), charge/discharge hysteresis only marginal, measurement noise rejected
+  (memory + di/dt concentration + heavy tails). The model-family exit is refined to
+  a fast-polarization branch plus sampling alignment; filter-side robustification
+  addresses the heavy-tailed innovation that poisons the capacity state.
+version: 1.8.0
 date-released: 2026-10-31
 license: MIT
 repository-code: "https://github.com/ilo-love7/battery-soc-ekf-ukf"

@@ -1,0 +1,40 @@
+{
+ "dataset": "panasonic",
+ "lines": {
+  "L1_mean_mv": 5.0,
+  "L1_ratio": 1.3,
+  "L2_rho": 0.3
+ },
+ "checks": {
+  "L1_asym": true,
+  "L2_hyst": false
+ },
+ "per_temp": {
+  "-20": {
+   "chg_dis_ratio": NaN,
+   "chg_dis_mean_gap_mv": NaN,
+   "rho_hyst": -0.054229354298750254
+  },
+  "-10": {
+   "chg_dis_ratio": NaN,
+   "chg_dis_mean_gap_mv": NaN,
+   "rho_hyst": -0.0666746801872637
+  },
+  "0": {
+   "chg_dis_ratio": NaN,
+   "chg_dis_mean_gap_mv": NaN,
+   "rho_hyst": -0.012068165112164375
+  },
+  "10": {
+   "chg_dis_ratio": 1.3945144601511559,
+   "chg_dis_mean_gap_mv": 3.708767630852562,
+   "rho_hyst": -0.02350366924064006
+  },
+  "25": {
+   "chg_dis_ratio": 1.2039306296566972,
+   "chg_dis_mean_gap_mv": 1.1103631773526241,
+   "rho_hyst": 0.004597611360466395
+  }
+ },
+ "verdict": "成立/部分：充放或路径不对称过线（见逐项）"
+}

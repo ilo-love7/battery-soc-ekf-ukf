@@ -1,0 +1,97 @@
+{
+ "dataset": "panasonic",
+ "lines": {
+  "L1_acf1": 0.3,
+  "L1_tau_s": 20.0,
+  "L2_didt": 2.0,
+  "L3_edge": 1.5,
+  "L4_r2": 0.2,
+  "L4_cut": 0.3
+ },
+ "checks": {
+  "L1_memory": true,
+  "L2_didt": true,
+  "L3_edge": true,
+  "L4_explain": true
+ },
+ "per_temp": {
+  "-20": {
+   "white_rms_mv": 43.548116246713356,
+   "acf_1s": 0.5952974756122665,
+   "didt_hi_lo_ratio": 3.3314121581710645,
+   "edge_early_late_ratio": 1.7678390709571519,
+   "fast_tau_star_s": 5.0,
+   "fast_rho_max": -0.40600467679727104,
+   "fastfit_r2_med": 0.3757366555779894,
+   "fastfit_rms_cut_med": 0.20989662421806432,
+   "fastfit_tau_med_s": 5.0
+  },
+  "-10": {
+   "white_rms_mv": 25.079952227119698,
+   "acf_1s": 0.5649148480483427,
+   "didt_hi_lo_ratio": 2.541496191765212,
+   "edge_early_late_ratio": 1.9980176969243268,
+   "fast_tau_star_s": 10.0,
+   "fast_rho_max": -0.35810720214805924,
+   "fastfit_r2_med": 0.21851694289766466,
+   "fastfit_rms_cut_med": 0.11598469634155362,
+   "fastfit_tau_med_s": 10.0
+  },
+  "0": {
+   "white_rms_mv": 18.19328808034656,
+   "acf_1s": 0.2960372841458117,
+   "didt_hi_lo_ratio": 2.7800858340710555,
+   "edge_early_late_ratio": 2.208280528648498,
+   "fast_tau_star_s": 0.1,
+   "fast_rho_max": -0.20347569310196043,
+   "fastfit_r2_med": 0.14008016631967268,
+   "fastfit_rms_cut_med": 0.07268137424058663,
+   "fastfit_tau_med_s": 0.1
+  },
+  "10": {
+   "white_rms_mv": 17.624122535794786,
+   "acf_1s": 0.07481467812876728,
+   "didt_hi_lo_ratio": 2.890838747912832,
+   "edge_early_late_ratio": 2.180049160821153,
+   "fast_tau_star_s": 5.0,
+   "fast_rho_max": -0.14228134703461648,
+   "fastfit_r2_med": 0.08693935334116687,
+   "fastfit_rms_cut_med": 0.04445793046102209,
+   "fastfit_tau_med_s": 5.0
+  },
+  "25": {
+   "white_rms_mv": 18.964217094451683,
+   "acf_1s": -0.08192441702393721,
+   "didt_hi_lo_ratio": 2.8365288176172614,
+   "edge_early_late_ratio": 2.1998220016859706,
+   "fast_tau_star_s": 1.05,
+   "fast_rho_max": -0.1758009371089504,
+   "fastfit_r2_med": 0.04885276164106217,
+   "fastfit_rms_cut_med": 0.024742639012762024,
+   "fastfit_tau_med_s": 1.05
+  }
+ },
+ "ctrl_recov": {
+  "noise": {
+   "didt_ratio": 0.9873911322306569,
+   "acf1": -0.012675334079847334,
+   "white_rms_mv": 12.049389352696945
+  },
+  "fast_rc": {
+   "didt_ratio": 1.6548625957848546,
+   "acf1": 0.9224035951464813,
+   "white_rms_mv": 50.736441102071915
+  },
+  "hyst_slow": {
+   "didt_ratio": 0.9827004179736314,
+   "acf1": -0.0043895135643626775,
+   "white_rms_mv": 12.09766785268147
+  },
+  "hyst_fast": {
+   "didt_ratio": 1.7680713480698849,
+   "acf1": 0.0272139068268188,
+   "white_rms_mv": 12.66710119170825
+  }
+ },
+ "verdict": "成立：white 主源 = 快极化动力学缺失（记忆 + 边沿集中 + 快模态回归削减 21%）"
+}

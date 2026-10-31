@@ -216,6 +216,23 @@ zone, so the "EKFQ does not work on NCA" verdict stands with updated reasons.
 Direction signatures cross-check the channels: white pushes q up, odd pulls it down,
 matching the warm/cold drift directions in the real data.
 
+**Physical identification of the white component (v1.8).** Synthetic positive
+controls calibrate the probe first (pure noise is flat; a known fast RC is caught
+by ACF1 = 0.92; slow hysteresis is swallowed by the slow filter and never reaches
+white). Verdicts: **H26 "missing fast polarization dynamics" confirmed** (ACF1
++0.60, high/low |di/dt| ratio 3.33, edge ratio 1.77 at −20 °C; a residualized
+fast-RC regression at τ = 5 s explains R² = 0.38 of white and cuts 21 % of its
+RMS), **H27 "charge/discharge hysteresis" only marginally** (charge/discharge
+RMS ratio 1.39 at 10 °C alone; ρ(hyst) ≤ 0.07 everywhere), **H28 "measurement
+noise" rejected** (memory + di/dt concentration + excess kurtosis +7.7…+30.3).
+The physical identity: **the drive current is a ~0.5 A/s ramp, not a step, and
+the apparent dV/di during ramps reaches 150–300 mV/A = 2–2.4× the steady r0** —
+white is the missing fast polarization (τ ≈ 5–10 s) that builds up on ramps and
+edges, amplified at cold temperature. The model-family exit is refined from
+"hysteresis/diffusion" to **fast-polarization branch + sampling alignment** (a
+single fast RC only cuts 21 %); the filter-side remedy for the heavy-tailed
+innovation that poisons q is robustification (Huber/clipping, to be tested).
+
 ## Install
 
 ```bash
@@ -411,7 +428,14 @@ python scripts/28_ekfq_round4.py --stage h24  --dataset panasonic   # ~8 min
 python scripts/28_ekfq_round4.py --stage h25  --dataset panasonic   # seconds
 python scripts/29_round8_figures.py                       # three round-8 figures
 
-python -m pytest tests -q                        # 115 tests, no dataset needed
+# physical identification of the white component (v1.8) — probe / H26 / H27 / H28
+python scripts/30_white_round5.py --stage probe --dataset panasonic   # ~6 min
+python scripts/30_white_round5.py --stage h26  --dataset panasonic   # seconds
+python scripts/30_white_round5.py --stage h27  --dataset panasonic   # seconds
+python scripts/30_white_round5.py --stage h28  --dataset panasonic   # seconds
+python scripts/31_round9_figures.py                       # three round-9 figures
+
+python -m pytest tests -q                        # 125 tests, no dataset needed
 ```
 
 ## Limitations
@@ -456,8 +480,11 @@ python -m pytest tests -q                        # 115 tests, no dataset needed
   true dynamic residual; the dynamic block is *non-shared* across profiles (LOO
   transfer fails for both a (u1,u2) kernel and per-temperature bias/shape) and is not
   fixed by adding branches — the open-loop floor is an upper bound on the filter-relevant
-  residual, and a structural model change (hysteresis/diffusion states) is the stated
-  route, not done.
+  residual. Round 9 (§10.14) identifies the largest filtered block (white): **missing
+  fast polarization on ramps/edges (τ ≈ 5–10 s, apparent dV/di up to 2–2.4× the steady
+  r0)**, so the exit is refined to a fast-polarization branch + sampling alignment (a
+  single fast RC only cuts 21 %), with innovation robustification on the filter side
+  against the heavy tails that poison q.
 - **Current bias is given, not estimated.** The filter can only cancel it via voltage feedback
   (a 5th bias state is collinear with SOC on the plateau, hence unobservable).
 - **Convergence numbers are slightly optimistic**: a 300 s rest window is kept. For a
