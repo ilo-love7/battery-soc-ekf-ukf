@@ -113,3 +113,27 @@ def test_profile_dt_and_slice():
     assert pr.dt == pytest.approx(1.0)
     assert len(pr.slice(10, 20)) == 10
     assert pr.slice(10, 20).t_s[0] == 0.0
+
+
+def test_slice_from_soc_finds_first_crossing():
+    """中段切片：从真值 SOC 首次降到目标附近处切开，时间轴归零。"""
+    n = 2001
+    t = np.arange(n) * 1.0
+    i = np.full(n, -1.0)                       # 1 A × 2000 s = 0.556 Ah
+    pr = P.build_profile(t, i, np.full(n, 4.0), np.full(n, 25.0),
+                         capacity_ah=1.0, soc0=1.0, dt=1.0)
+    sub = pr.slice_from_soc(0.70, tol=0.02)
+    assert sub is not None
+    # 首个 |soc−0.70|≤0.02 的样本在 250~350 s 之间（0.3 Ah / 1 A）
+    assert abs(sub.soc_ref[0] - 0.70) <= 0.02
+    assert sub.t_s[0] == 0.0
+    assert len(sub) < len(pr)
+
+
+def test_slice_from_soc_returns_none_when_not_reached():
+    """整段没降到目标 SOC → 返回 None，不许静默退化成整段。"""
+    t = np.arange(101) * 1.0
+    i = np.zeros(101)                          # 不放电，SOC 恒为 1
+    pr = P.build_profile(t, i, np.full(101, 4.0), np.full(101, 25.0),
+                         capacity_ah=1.0, soc0=1.0, dt=1.0)
+    assert pr.slice_from_soc(0.50) is None

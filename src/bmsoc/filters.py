@@ -347,6 +347,119 @@ class AEKF(EKF):
         return out
 
 
+class EKFQ(EKF):
+    """EKF + **容量联合估计**：状态 ``[soc, u1, u2, b, q]``，``q`` 是容量 (Ah)。
+
+    为什么需要
+    ----------
+    标定容差实验（`scripts/12`）测出：容量是误差预算里**唯一没有状态能吸收**的项。
+    OCV 常值误差被 ``b`` 吃掉（±40 mV ⇒ 0.04 pp），容量 5% ⇒ 2–3 pp、10% ⇒ 5 pp，
+    且随放电深度线性增长。本类把容量也建成状态，看电压反馈能不能把它拉回来。
+
+    可辨识性（必须先说清）
+    --------------------
+    ``h(x)`` 里容量**不出现**，它只通过 ``soc' = soc + η·i·dt/(3600·q)`` 影响
+    电压。所以 ``q`` 只在「有电流积分」且「SOC 被电压锚定」时可辨识：
+
+    - **静置/恒流平台**：`i` 恒定 ⇒ `soc` 与 `q` 的误差以同一比例进入电压，
+      完全共线，估计不动；
+    - **动态工况（电流变号、幅值变化大）**：`q` 的误差使 SOC 预测以特定方式漂移，
+      与 `b`（常值）可区分，此时能收。
+
+    一句话：**容量可辨识性来自电流激励的丰富度，不是来自数据量。** 这与
+    「偏置与 SOC 在平台区共线」（§8.1.3）是同一个问题的两个侧面。
+
+    ``q`` 的过程噪声给得很小（慢随机游走），初值标准差默认 5%（真实标定误差量级）。
+    """
+
+    name = "ekfq"
+    NDIM = 5
+
+    def __init__(self, *a, sigma_q0: float = 0.05, q_q: float = 1e-10, **kw):
+        super().__init__(*a, **kw)
+        self.sigma_q0 = float(sigma_q0)          # 相对容量（分数）
+        self.q_q = float(q_q)                    # 容量过程噪声（Ah²/步）
+
+    def _F(self, dt: float, i: float, q: float) -> np.ndarray:
+        """状态转移雅可比。``∂soc/∂q = −η·i·dt/(3600 q²)`` 依赖当前电流与容量，
+        所以必须每步重算（EKF 基类里 F 是常数，这里不是）。"""
+        a1, _, a2, _ = self._ab(dt)
+        F = np.eye(self.NDIM)
+        F[1, 1], F[2, 2] = a1, a2
+        q = max(float(q), 1e-6)
+        F[0, 4] = -self.cfg.eta * float(i) * dt / (3600.0 * q * q)
+        return F
+
+    def _predict(self, x: np.ndarray, i: float, dt: float, clip: bool = True) -> np.ndarray:
+        c = self.cfg
+        a1, b1, a2, b2 = self._ab(dt)
+        q = max(float(x[4]), 1e-6)
+        soc = x[0] + c.eta * i * dt / (3600.0 * q)
+        u1 = a1 * x[1] + b1 * i
+        u2 = a2 * x[2] + b2 * i
+        if not clip:
+            return np.array([soc, u1, u2, x[3], x[4]])
+        return np.array([np.clip(soc, *c.soc_clip),
+                         float(np.clip(u1, -c.u_clip, c.u_clip)),
+                         float(np.clip(u2, -c.u_clip, c.u_clip)),
+                         float(np.clip(x[3], -c.b_clip, c.b_clip)), q])
+
+    def _H(self, x: np.ndarray, temp_c: float) -> np.ndarray:
+        return np.array([[_docv_scalar(self.ocv, float(x[0]), temp_c), 1.0, 1.0, 1.0, 0.0]])
+
+    def _init_state(self, soc_init: Optional[float], i0: float = 0.0) -> np.ndarray:
+        s0 = self.cfg.soc0 if soc_init is None else float(soc_init)
+        return np.array([s0, self.p.r1 * i0, self.p.r2 * i0, 0.0, self.q_cap])
+
+    def _init_cov(self) -> np.ndarray:
+        c = self.cfg
+        sq = (self.sigma_q0 * self.q_cap) ** 2
+        return np.diag([c.sigma_soc0 ** 2, c.sigma_u0 ** 2, c.sigma_u0 ** 2,
+                        c.sigma_b0 ** 2, sq])
+
+    def _Q(self) -> np.ndarray:
+        c = self.cfg
+        return np.diag([c.q_soc, c.q_u, c.q_u, c.q_b, self.q_q])
+
+    def _run(self, prof, dt, v_meas, soc_init):
+        c = self.cfg
+        n = len(prof)
+        i_arr, t_arr = prof.current_a, prof.temp_c
+        x = self._init_state(soc_init, float(i_arr[0]) if n else 0.0)
+        P = self._init_cov()
+        Q = self._Q()
+        R = c.sigma_v ** 2
+        nd = self.NDIM
+        soc = np.empty(n); inn = np.zeros(n); nis = np.zeros(n)
+        gain = np.zeros(n); sig = np.empty(n); vp = np.empty(n); bh = np.zeros(n)
+        qh = np.empty(n)
+        for k in range(n):
+            if k > 0:
+                F = self._F(dt, float(i_arr[k - 1]), float(x[4]))
+                x = self._predict(x, i_arr[k - 1], dt)
+                P = F @ P @ F.T + Q
+            # 容量下限保护：q 只允许在 [0.5, 1.5]×初值内游走，防止奇异
+            x[4] = float(np.clip(x[4], 0.5 * self.q_cap, 1.5 * self.q_cap))
+            H = self._H(x, float(t_arr[k]))
+            y_hat = self._h(x, i_arr[k], float(t_arr[k]))
+            S = float((H @ P @ H.T)[0, 0]) + R
+            K = (P @ H.T).reshape(-1) / S
+            e = float(v_meas[k]) - y_hat
+            x = x + K * e
+            x[0] = float(np.clip(x[0], *c.soc_clip))
+            x[3] = float(np.clip(x[3], -c.b_clip, c.b_clip))
+            x[4] = float(np.clip(x[4], 0.5 * self.q_cap, 1.5 * self.q_cap))
+            IKH = np.eye(nd) - np.outer(K, H)
+            P = IKH @ P @ IKH.T + R * np.outer(K, K)
+            P = 0.5 * (P + P.T)
+            soc[k] = x[0]; inn[k] = e; nis[k] = e * e / S
+            gain[k] = K[0]; sig[k] = float(np.sqrt(max(P[0, 0], 0.0)))
+            vp[k] = y_hat; bh[k] = x[3]; qh[k] = x[4]
+        out = self._pack(soc, inn, nis, gain, sig, vp, bh)
+        out["q_hat"] = qh
+        return out
+
+
 ESTIMATORS = {"cc": CoulombCounter, "ekf": EKF, "ukf": UKF, "aekf": AEKF}
 
 

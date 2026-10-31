@@ -9,7 +9,7 @@ import pytest
 
 from bmsoc import ocv as ocvmod
 from bmsoc.ecm import RCParams, simulate
-from bmsoc.filters import AEKF, ESTIMATORS, EKF, UKF, CoulombCounter, FilterConfig, make
+from bmsoc.filters import AEKF, ESTIMATORS, EKF, EKFQ, UKF, CoulombCounter, FilterConfig, make
 from bmsoc.profiles import DrivingProfile
 
 TRUE = RCParams(r0=0.030, r1=0.012, tau1=10.0, r2=0.040, tau2=400.0)
@@ -164,3 +164,70 @@ def test_run_rejects_non_profile():
     est = EKF(ocv=_curve(), params=TRUE, capacity_ah=CAP)
     with pytest.raises(TypeError):
         est.run({"t_s": np.zeros(3)})
+
+
+# ---- EKFQ：容量作为第五状态的联合估计 ----
+# 这些测试守的是 scripts/15 的结论依据：动态激励下 q 可辨识、恒流下不可辨识。
+
+def test_ekfq_recovers_capacity_under_dynamic_excitation():
+    """随机变号电流下，q0 错 10% 应被拉回真值附近，且 SOC 误差远小于固定 Q。
+
+    注意放电深度必须够（这里约 70% DOD）：q 的信息来自「累积电量 vs 电压锚点」
+    的差，浅放电时这个差太小，会被 b / u 状态吃掉（第一版测试只放 13% DOD，
+    q 从 2.25 只动到 2.26，测试如实失败——这是可辨识性的真实约束，不是 bug）。"""
+    n = 8000
+    rng = np.random.default_rng(7)
+    i = np.clip(rng.normal(-0.8, 1.5, n), -5.0, 2.0)   # 均值 −0.8 A ≈ 71% DOD
+    i[0] = 0.0
+    out = simulate(RCParams(*TRUE.as_array()), _curve(), i, DT, soc0=0.9, capacity_ah=CAP)
+    prof = DrivingProfile(np.arange(n) * DT, i, out["voltage"], np.full(n, 25.0),
+                          out["soc"], CAP, meta={"profile": "synth"})
+    assert prof.soc_ref[-1] < 0.35            # 保证放电深度够，否则测试无效
+    q_wrong = CAP * 0.90                      # 滤波器以为容量小 10%
+    cfg = FilterConfig(soc0=0.9, sigma_soc0=0.02)
+    bad = EKF(ocv=_curve(), params=TRUE, capacity_ah=q_wrong, cfg=cfg).run(prof)
+    good = EKFQ(ocv=_curve(), params=TRUE, capacity_ah=q_wrong, cfg=cfg,
+                sigma_q0=0.08).run(prof)
+    e_bad = np.sqrt(np.mean((bad["soc_hat"] - prof.soc_ref) ** 2))
+    e_good = np.sqrt(np.mean((good["soc_hat"] - prof.soc_ref) ** 2))
+    assert good["q_hat"][-1] == pytest.approx(CAP, rel=0.05)
+    assert e_good < 0.5 * e_bad               # 纠偏要起实质作用，不是挤小数点
+
+
+def test_ekfq_fails_to_identify_q_under_constant_current():
+    """恒流下 q 与 SOC 共线：正负误差都会被当成 SOC 漂移，q 基本不动。
+
+    这是「容量可辨识性来自电流激励丰富度」的另一半证据——同一份代码、
+    同一个 OCV，只是电流换成恒流，q 就收不回来。"""
+    n = 3000
+    i = np.full(n, -1.5)
+    i[0] = 0.0
+    out = simulate(RCParams(*TRUE.as_array()), _curve(), i, DT, soc0=0.9, capacity_ah=CAP)
+    prof = DrivingProfile(np.arange(n) * DT, i, out["voltage"], np.full(n, 25.0),
+                          out["soc"], CAP, meta={"profile": "synth"})
+    cfg = FilterConfig(soc0=0.9, sigma_soc0=0.02)
+    est = EKFQ(ocv=_curve(), params=TRUE, capacity_ah=CAP * 0.90, cfg=cfg, sigma_q0=0.02)
+    out_f = est.run(prof)
+    # q 收敛不到 5% 以内（与动态激励的上一个测试形成对照）
+    assert abs(out_f["q_hat"][-1] / CAP - 1.0) > 0.03
+
+
+def test_ekfq_neutral_when_capacity_correct():
+    """容量本来就是对的时，加一个 q 状态不应把结果变差。"""
+    prof = _synth()
+    cfg = FilterConfig(soc0=0.7, sigma_soc0=0.2)
+    base = EKF(ocv=_curve(), params=TRUE, capacity_ah=CAP, cfg=cfg).run(prof)
+    ext = EKFQ(ocv=_curve(), params=TRUE, capacity_ah=CAP, cfg=cfg).run(prof)
+    e_base = np.sqrt(np.mean((base["soc_hat"] - prof.soc_ref) ** 2))
+    e_ext = np.sqrt(np.mean((ext["soc_hat"] - prof.soc_ref) ** 2))
+    assert e_ext == pytest.approx(e_base, rel=0.25)
+    assert ext["q_hat"][-1] == pytest.approx(CAP, rel=0.10)
+
+
+def test_ekfq_f_jacobian_has_capacity_column():
+    """F 的 ∂soc/∂q 必须是 −η·i·dt/(3600q²)（符号反了 q 会往错方向跑）。"""
+    est = EKFQ(ocv=_curve(), params=TRUE, capacity_ah=CAP, cfg=FilterConfig(soc0=0.5))
+    F = est._F(DT, i=-2.0, q=2.0)
+    assert F[0, 4] == pytest.approx(2.0 * DT / (3600.0 * 4.0), abs=1e-12)  # η=1, −(−2)
+    F2 = est._F(DT, i=2.0, q=2.0)
+    assert F2[0, 4] < 0

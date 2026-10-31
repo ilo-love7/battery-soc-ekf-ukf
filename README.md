@@ -43,7 +43,7 @@ Four things this benchmark says that are worth knowing before you deploy a filte
   the cell by 30 K *while driving*, so a single-temperature table is off by tens of mV.
 - **Linear extrapolation outside SOC ∈ [0,1]** — required for UKF, harmless for EKF. See below.
 - **Leave-one-profile-out calibration** and **four stress scenarios** instead of one flattering number.
-- **72 unit tests, all on synthetic data** — they run without the datasets in CI (Python 3.10 + 3.12).
+- **78 unit tests, all on synthetic data** — they run without the datasets in CI (Python 3.10 + 3.12).
 
 ## Results
 
@@ -105,6 +105,28 @@ rather than lucky:
 What does bite, on both chemistries, is a **capacity** error: 5 % → 2–4.5 pp, 10 % → 5–7.4 pp,
 and no filter state can absorb a *gain* error. By contrast a ±40 mV OCV-table error (constant or
 SOC-shaped) costs ≤ 0.6 pp, because the bias state absorbs it.
+
+### Two stress tests (v1.2): the table above has a precondition
+
+**Mid-SOC power-up.** The benchmark above starts every segment at 100 % SOC — which happens to
+be the steepest part of the LFP curve. Slicing each segment to start at SOC 0.7 / 0.5 / 0.3
+(`slice_from_soc`) changes the picture completely: LFP `init30` degrades from 0.56–1.10 pp to
+**12–36 pp** (NCA: 3.3 → 10–25 pp). Even with a *correct* initial SOC (`known`) the error grows
+2–3× — a pure observability floor of plateau start-up. Worse, the error is asymmetric: an
+estimate 30 pp too **high** is ~2× harder to recover than one too low (LFP 30.8 vs 14.0 pp at
+start 0.5), and those runs almost never reach the 5 pp band (0–5 %). Conclusion: the
+"LFP is not harder" result is a property of **starting full**, not of the chemistry.
+Real BMS wakes up mid-plateau far more often than at 100 %.
+
+**Online capacity estimation.** The capacity error growth law is exactly
+`err_end = −(1/s−1)(1−SOC_end)` — verified point-for-point on 24 segments × 5 capacity ratios
+(median deviation 0.05 pp). So the natural fix, adding capacity as a 5th filter state (`EKFQ`),
+should work. On synthetic data it does (10 % error → recovered to ±2 %). **On real data it is
+worse than doing nothing**: 12 pp vs 2.6 pp, because the 38–53 mV model residual is
+voltage-indistinguishable from a slow capacity drift and gets absorbed into `q` (it drifts −3 to
+−6 % even when the true capacity is correct). Hyper-parameter sweeps confirm this is structural.
+Takeaway: capacity must come from an **external anchor** (SOH estimation, project A2), not from
+a single discharge segment.
 
 ## Install
 
@@ -259,18 +281,27 @@ python scripts/12_calibration_stress.py --dataset calce      # calibration margi
 python scripts/12_calibration_stress.py --dataset panasonic  # same probe on NCA, ~8 min
 python scripts/13_calce_figures.py               # three cross-chemistry figures
 
-python -m pytest tests -q                        # 72 tests, no dataset needed
+# stress tests (v1.2) — mid-SOC power-up + capacity error budget
+python scripts/14_mid_soc_stress.py --dataset calce       # ~7 min
+python scripts/14_mid_soc_stress.py --dataset panasonic   # ~9 min
+python scripts/15_capacity_q.py --dataset calce           # ~5 min
+python scripts/15_capacity_q.py --dataset panasonic       # ~6 min
+python scripts/16_round3_figures.py                       # two stress-test figures
+
+python -m pytest tests -q                        # 78 tests, no dataset needed
 ```
 
 ## Limitations
 
 - **Two chemistries, not a controlled comparison.** NCA (Panasonic NCR18650PF) and LFP
   (CALCE A123, aged to ~45 % SOH) differ in cell, age, profile length *and* temperature grid,
-  so §10 only claims "the method transfers", never "LFP is easier". Both datasets also start
-  at 100 % SOC — mid-SOC power-up, where LFP is genuinely hard, is not tested.
-- **Capacity uncertainty dominates the error budget.** A 5–10 % capacity error costs 3–7 pp and
-  no filter state can absorb it (it is a gain error, not a bias). Coupling to SOH estimation
-  (project A2) is the missing link.
+  so §10 only claims "the method transfers", never "LFP is easier". And "transfers" now comes
+  with an explicit precondition: **starting at 100 % SOC** (v1.2 §10.7 shows mid-plateau
+  power-up is 15–30× harder).
+- **Capacity uncertainty dominates the error budget, and online identification does not work.**
+  A 5–10 % capacity error costs 3–7 pp (growth law verified exactly); adding capacity as a filter
+  state absorbs the model residual instead and degrades results (v1.2 §10.8). Coupling to SOH
+  estimation (project A2) is the missing link — and it is not optional.
 - **OCV needs rest.** The table comes from HPPC rest-end voltages; during a drive the cell never
   fully relaxes, so the cold folds need `dv` up to −138 mV (0 of 24 folds hit the −150 mV bound,
   but the sign and magnitude vary monotonically with temperature).
@@ -280,7 +311,9 @@ python -m pytest tests -q                        # 72 tests, no dataset needed
 - **Current bias is given, not estimated.** The filter can only cancel it via voltage feedback
   (a 5th bias state is collinear with SOC on the plateau, hence unobservable).
 - **Convergence numbers are slightly optimistic**: a 300 s rest window is kept. For a
-  "correct on the first sample" variant use `--keep-rest 0`.
+  "correct on the first sample" variant use `--keep-rest 0`. And every segment starts at 100 %
+  SOC, where the initial error lands on a steep OCV slope — see the mid-SOC stress test above
+  for the plateau case (12–36 pp instead of 0.6–1.1).
 
 ## Citation & licence
 

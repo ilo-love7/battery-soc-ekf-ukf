@@ -180,6 +180,23 @@ class DrivingProfile:
         i0 = int(np.searchsorted(self.t_s, t_keep))
         return self.slice(i0)
 
+    def slice_from_soc(self, soc_target: float, tol: float = 0.02) -> Optional["DrivingProfile"]:
+        """从真值 SOC 首次降到 ``soc_target`` 附近处切开，返回后半段。
+
+        用于「中段上电」压力测试：v1.1 的所有工况都从满电（SOC=1.0）起步，
+        恰好落在 LFP 最陡的区段（30 pp ↔ 285 mV），初值误差一条新息就被拉回 ——
+        这是协议的盲区。把起点挪到平台区（如 0.5），才能测出「电压几乎不带
+        SOC 信息」时滤波器的真实表现。
+
+        找的是**第一个**满足 ``|soc_ref − target| ≤ tol`` 的时刻；若整段都没走到
+        那个 SOC，返回 ``None``（调用方跳过该段，不要静默退化成整段）。
+        """
+        s = self.soc_ref
+        hit = np.flatnonzero(np.abs(s - float(soc_target)) <= float(tol))
+        if hit.size == 0:
+            return None
+        return self.slice(int(hit[0]))
+
 
 def build_profile(t_s, current_a, voltage_v, temp_c, capacity_ah: float,
                   soc0: float = 1.0, dt: float = 1.0,

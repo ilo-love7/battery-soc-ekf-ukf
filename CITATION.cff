@@ -12,7 +12,13 @@ abstract: >-
   unscented weights and OCV clamped outside SOC in [0,1]). Calibration-margin probe
   shows capacity error (5-10 % -> 3-7 pp) dominates the error budget and cannot be
   absorbed by any filter state, whereas a ±40 mV OCV-table error costs 0.6 pp or less.
-version: 1.1.0
+  Two stress tests bound the validity of these numbers: starting mid-plateau instead of
+  full degrades initial-SOC error from 0.6-1.1 pp to 12-36 pp on LFP (a start-point
+  effect, not a chemistry effect), and online capacity identification as a fifth filter
+  state fails on real data because the 38-53 mV model residual is voltage-
+  indistinguishable from capacity drift. The capacity error growth law
+  err_end = -(1/s-1)(1-SOC_end) is verified point-for-point.
+version: 1.2.0
 date-released: 2026-10-31
 license: MIT
 repository-code: "https://github.com/ilo-love7/battery-soc-ekf-ukf"
