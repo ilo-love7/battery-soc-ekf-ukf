@@ -1,0 +1,218 @@
+{
+ "dataset": "panasonic",
+ "lines": {
+  "L1_suff": 0.3,
+  "L2_necc": 0.7
+ },
+ "table": {
+  "none": {
+   "q_ok_rate": 1.0,
+   "q_ok_rate_x0.5": 1.0,
+   "q_ok_rate_x1.5": 1.0,
+   "q_rel_err_med": -0.0009178803734354313,
+   "rmse_soc_med": 0.009543717875587608,
+   "by_fold": {
+    "-20_hwfet": {
+     "q_ok_rate": 1.0,
+     "q_rel_err_med": -0.000723194564401064,
+     "rmse_soc_med": 0.007372151552500312
+    },
+    "-20_la92": {
+     "q_ok_rate": 1.0,
+     "q_rel_err_med": -0.0011626884374971724,
+     "rmse_soc_med": 0.0069787884185424955
+    },
+    "25_nn": {
+     "q_ok_rate": 1.0,
+     "q_rel_err_med": -0.000690385804170579,
+     "rmse_soc_med": 0.011695701290051822
+    },
+    "25_udds": {
+     "q_ok_rate": 1.0,
+     "q_rel_err_med": -0.001041175575548059,
+     "rmse_soc_med": 0.015172081530986394
+    }
+   }
+  },
+  "full": {
+   "q_ok_rate": 0.0,
+   "q_ok_rate_x0.5": 0.375,
+   "q_ok_rate_x1.5": 0.0,
+   "q_rel_err_med": 0.38636332364069337,
+   "rmse_soc_med": 0.161307208372573,
+   "by_fold": {
+    "-20_hwfet": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.34066714761468697,
+     "rmse_soc_med": 0.1166230583625114
+    },
+    "-20_la92": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.38913945117110116,
+     "rmse_soc_med": 0.14616688620261653
+    },
+    "25_nn": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.46125396043868727,
+     "rmse_soc_med": 0.21372444768858573
+    },
+    "25_udds": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.24130947172950445,
+     "rmse_soc_med": 0.1262572293737419
+    }
+   }
+  },
+  "odd_only": {
+   "q_ok_rate": 0.375,
+   "q_ok_rate_x0.5": 0.75,
+   "q_ok_rate_x1.5": 0.375,
+   "q_rel_err_med": -0.027327032315892175,
+   "rmse_soc_med": 0.02062826567115629,
+   "by_fold": {
+    "-20_hwfet": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": -0.05078426544678666,
+     "rmse_soc_med": 0.02464138724046159
+    },
+    "-20_la92": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": -0.2177107242105058,
+     "rmse_soc_med": 0.11034822385012222
+    },
+    "25_nn": {
+     "q_ok_rate": 1.0,
+     "q_rel_err_med": -0.004865512950800344,
+     "rmse_soc_med": 0.011773129675279225
+    },
+    "25_udds": {
+     "q_ok_rate": 0.5,
+     "q_rel_err_med": -0.011240423168681013,
+     "rmse_soc_med": 0.016913765918558452
+    }
+   }
+  },
+  "white_only": {
+   "q_ok_rate": 0.0,
+   "q_ok_rate_x0.5": 0.25,
+   "q_ok_rate_x1.5": 0.0,
+   "q_rel_err_med": 0.3650626700252264,
+   "rmse_soc_med": 0.1481295725629997,
+   "by_fold": {
+    "-20_hwfet": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.3376317410285272,
+     "rmse_soc_med": 0.10419210382178551
+    },
+    "-20_la92": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.3074983731315317,
+     "rmse_soc_med": 0.10926492673087193
+    },
+    "25_nn": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.46880724115296646,
+     "rmse_soc_med": 0.21372736532288666
+    },
+    "25_udds": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.22053586696986582,
+     "rmse_soc_med": 0.11043366196072148
+    }
+   }
+  },
+  "minus_odd": {
+   "q_ok_rate": 0.125,
+   "q_ok_rate_x0.5": 0.375,
+   "q_ok_rate_x1.5": 0.0,
+   "q_rel_err_med": 0.29799443647308443,
+   "rmse_soc_med": 0.13345150121249816,
+   "by_fold": {
+    "-20_hwfet": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.3553481161143991,
+     "rmse_soc_med": 0.1081203343038091
+    },
+    "-20_la92": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.31889179266657497,
+     "rmse_soc_med": 0.10349267635402909
+    },
+    "25_nn": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.46504177228975185,
+     "rmse_soc_med": 0.21493826778947633
+    },
+    "25_udds": {
+     "q_ok_rate": 0.5,
+     "q_rel_err_med": 0.09928247417608882,
+     "rmse_soc_med": 0.07774282283435086
+    }
+   }
+  },
+  "minus_white": {
+   "q_ok_rate": 0.5,
+   "q_ok_rate_x0.5": 0.75,
+   "q_ok_rate_x1.5": 0.125,
+   "q_rel_err_med": -0.01957595676808155,
+   "rmse_soc_med": 0.02317493213497118,
+   "by_fold": {
+    "-20_hwfet": {
+     "q_ok_rate": 0.5,
+     "q_rel_err_med": -0.03976926251971741,
+     "rmse_soc_med": 0.022425622141711718
+    },
+    "-20_la92": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": -0.10690707811537459,
+     "rmse_soc_med": 0.06614481044193543
+    },
+    "25_nn": {
+     "q_ok_rate": 1.0,
+     "q_rel_err_med": -0.009441063463716703,
+     "rmse_soc_med": 0.011202777110131578
+    },
+    "25_udds": {
+     "q_ok_rate": 0.5,
+     "q_rel_err_med": -0.016926830258691128,
+     "rmse_soc_med": 0.022660223195099916
+    }
+   }
+  },
+  "slow_only": {
+   "q_ok_rate": 1.0,
+   "q_ok_rate_x0.5": 1.0,
+   "q_ok_rate_x1.5": 0.75,
+   "q_rel_err_med": 0.003551867935522035,
+   "rmse_soc_med": 0.011599518734943113,
+   "by_fold": {
+    "-20_hwfet": {
+     "q_ok_rate": 1.0,
+     "q_rel_err_med": 0.00817144340571413,
+     "rmse_soc_med": 0.0072963766858119145
+    },
+    "-20_la92": {
+     "q_ok_rate": 1.0,
+     "q_rel_err_med": 0.00699121975301098,
+     "rmse_soc_med": 0.008451645070426254
+    },
+    "25_nn": {
+     "q_ok_rate": 1.0,
+     "q_rel_err_med": -0.0008879089445483213,
+     "rmse_soc_med": 0.011599518734943113
+    },
+    "25_udds": {
+     "q_ok_rate": 1.0,
+     "q_rel_err_med": -0.0007766830855631124,
+     "rmse_soc_med": 0.014996422155976654
+    }
+   }
+  }
+ },
+ "checks": {
+  "L1_odd_suff": false,
+  "L2_minus_odd_necc": false,
+  "L3_slow_innocent": true
+ },
+ "verdict": "被否：只注奇型收敛率 38% > 30%——奇型不是充分毒源"
+}

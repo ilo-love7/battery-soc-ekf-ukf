@@ -196,6 +196,26 @@ floor** — only the 55 % block belongs in the filter error budget. Tail extrapo
 on 300 s rests needs a constrained-τ prior (free-τ biases up to 26 mV; two-mode
 synthetic control bounds the constrained estimator at 1.6 mV).
 
+**Filtered-residual EKFQ re-verification (v1.7).** The EKFQ feasibility question was
+re-stated in terms of the *filtered* residual (the innovation left after the EKF's
+u/b states absorb what they can). States absorb 33 % at −20 °C; the filtered
+remainder is almost free of slow/even/constant content (slow ≤ 4.6 mV — **the v1.2
+"slow residual > 20 mV" premise does not apply to the filtered metric**, H23
+confirmed) and is dominated by **white / fast-nonlinear (29–64 mV at −20 °C)** plus
+an odd (∝ i) part that exceeds its 10–15 mV band in the cold (23.4 mV median). A
+selective-injection bench on a zero-residual synthetic plant gives the channel
+verdicts: **H24 "odd is the main channel" rejected** (odd-only injection converges
+38 % — a cold-only secondary channel; slow-only 100 %), **H25 "white is the main
+channel" partially confirmed** (white-only 0 % — kills every fold; removing white
+recovers only 50 %). Full replay of the measured filtered residual reproduces the
+real failure exactly (q̂ +38.6 %, SOC 16.1 pp), and a zero-residual control converges
+100 % — the failure boundary lives in the residual structure, not in the drive
+profile, DOD (0.87–0.98), or the implementation. Revised feasibility limits for the
+filtered metric: **white ≤ ~10 mV, odd ≤ ~5–10 mV**; no NCA fold enters the feasible
+zone, so the "EKFQ does not work on NCA" verdict stands with updated reasons.
+Direction signatures cross-check the channels: white pushes q up, odd pulls it down,
+matching the warm/cold drift directions in the real data.
+
 ## Install
 
 ```bash
@@ -384,7 +404,14 @@ python scripts/26_floor_round3.py --stage h21  --dataset panasonic    # ~3 min
 python scripts/26_floor_round3.py --stage h22  --dataset panasonic    # ~3 min
 python scripts/27_round7_figures.py                       # three round-7 figures
 
-python -m pytest tests -q                        # 106 tests, no dataset needed
+# filtered-residual EKFQ re-verification (v1.7) — probe / H23 / H24 / H25
+python scripts/28_ekfq_round4.py --stage probe --dataset panasonic   # ~8 min
+python scripts/28_ekfq_round4.py --stage h23  --dataset panasonic   # seconds
+python scripts/28_ekfq_round4.py --stage h24  --dataset panasonic   # ~8 min
+python scripts/28_ekfq_round4.py --stage h25  --dataset panasonic   # seconds
+python scripts/29_round8_figures.py                       # three round-8 figures
+
+python -m pytest tests -q                        # 115 tests, no dataset needed
 ```
 
 ## Limitations
@@ -400,6 +427,10 @@ python -m pytest tests -q                        # 106 tests, no dataset needed
   (v1.2 §10.8). Round 5 (§10.10) found the exit condition: once the residual is pushed below
   20 mV (ΔOCV on LFP), EKFQ starting from a 5 % over-estimate beats fixed-Q EKF (1.63 vs
   2.44 pp) — but only on the over-estimate side, and NCA (41.7 mV residual) does not qualify.
+  Round 8 (§10.13) revises the threshold metric: the 20 mV line is a *slow open-loop*
+  residual; the real filtered-residual constraint is **white/fast-nonlinear ≤ ~10 mV and
+  odd ≤ ~5–10 mV** (slow/even are absorbed by u/b states). No NCA fold enters the feasible
+  zone; the LFP conditional revival needs re-testing under the filtered metric (not done).
   The external-anchor route (v1.3 §10.9) is specified but not yet wired to a real SOH estimator:
   A2 must deliver bias ≤ ±2 %, staleness (walk × refresh period) ≤ 4 %, and on NCA R̂0 within
   ±25 %; R1/τ ageing and SOC-reference-event recomputation are still open.

@@ -51,8 +51,21 @@ abstract: >-
   inconsistency (142 mV at -20 deg C, cold-specific) plus unconverged state is
   partially confirmed, and open-loop floor is shown to be an upper bound on the
   filter-relevant residual. Tail extrapolation on 300 s rests requires a constrained
-  tau prior (free-tau bias up to 26 mV; two-mode synthetic control 1.6 mV).
-version: 1.6.0
+  tau prior (free-tau bias up to 26 mV; two-mode synthetic control 1.6 mV). An eighth
+  round restates EKFQ feasibility in terms of the filtered residual (the innovation
+  left after the EKF u/b states absorb what they can): states absorb 33 % of the
+  open-loop floor at -20 deg C, the slow/even/constant content drops below 5 mV
+  (so the slow-residual threshold premise is void in the filtered metric), and what
+  remains is white / fast-nonlinear (29-64 mV at -20 deg C) plus an odd component
+  over its 10-15 mV band in the cold. A selective-injection bench on a zero-residual
+  synthetic plant identifies white as the sufficient main channel (white-only
+  injection kills every fold, full replay reproduces the real failure exactly,
+  zero-residual control converges 100 %) and odd as a cold-only secondary channel;
+  the revised filtered-metric feasibility limits are white <= ~10 mV and
+  odd <= ~5-10 mV. No NCA fold enters the feasible zone, so the negative EKFQ
+  verdict on NCA stands with updated reasons (failure boundary lives in residual
+  structure, not drive profile, DOD, or implementation).
+version: 1.7.0
 date-released: 2026-10-31
 license: MIT
 repository-code: "https://github.com/ilo-love7/battery-soc-ekf-ukf"

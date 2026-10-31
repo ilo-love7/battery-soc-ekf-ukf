@@ -1,0 +1,54 @@
+{
+ "dataset": "panasonic",
+ "lines": {
+  "L1_slow_mv": 30.0,
+  "L2_absorb": 0.25
+ },
+ "per_temp": [
+  {
+   "temp": "-20_matched",
+   "slow_mv": 4.607316441572971,
+   "even_mv": 1.969080169206298e-14,
+   "absorb_frac": 0.32925167669195465,
+   "ok_slow": true,
+   "ok_even": true
+  },
+  {
+   "temp": "-10_matched",
+   "slow_mv": 2.34744997707138,
+   "even_mv": 5.2981657365820564e-15,
+   "absorb_frac": 0.32308533025726605,
+   "ok_slow": true,
+   "ok_even": true
+  },
+  {
+   "temp": "0_matched",
+   "slow_mv": 1.6442358760794893,
+   "even_mv": 1.612913010265685e-15,
+   "absorb_frac": 0.35132352259094024,
+   "ok_slow": true,
+   "ok_even": true
+  },
+  {
+   "temp": "10_matched",
+   "slow_mv": 1.1327567507616025,
+   "even_mv": 1.0723162397605646,
+   "absorb_frac": 0.20318135052847375,
+   "ok_slow": true,
+   "ok_even": true
+  },
+  {
+   "temp": "25_matched",
+   "slow_mv": 0.7541537088406967,
+   "even_mv": 0.7729834931920185,
+   "absorb_frac": 0.060967379167923774,
+   "ok_slow": true,
+   "ok_even": true
+  }
+ ],
+ "checks": {
+  "L1": true,
+  "L2": true
+ },
+ "verdict": "成立：滤波后 slow/even 全温度过 v1.5 上界（slow ≤ 4.6 mV），−20 °C 吸收份额 33% —— v1.2「慢变残差 >20–30 mV 不可行」的前提不适用于滤波口径；EKFQ 失败另有通道（H24/H25）"
+}

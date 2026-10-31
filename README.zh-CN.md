@@ -164,6 +164,19 @@ EKFQ 1.63 pp **反超** EKF 2.44 pp（q 收敛率 46%）；NCA 负结果原封�
 **开环地板 ≠ 滤波器地板**，进滤波器预算的只有那 55%。尾段外推必须约束-τ
 （自由-τ 偏 ±26 mV，双模态合成对照把约束估计器定在 1.6 mV）。
 
+**滤波后残差口径的 EKFQ 复验（v1.7）。** 把 EKFQ 可行性问题换到**滤波后残差**
+（EKF 的 u/b 状态吸收后剩给 q 的 innovation）口径重做。状态吸收 33% @ −20 °C；
+滤波后残差几乎没有慢/偶/常值成分（slow ≤4.6 mV——**v1.2「慢变残差 >20 mV」的
+前提不适用于滤波口径**，H23 成立），主体是 **white/快变非线性（29–64 mV @ −20）
++ 冷温超线的奇型（23.4 mV 中位，∝ i）**。零残差合成植物上的选择性注入台架给出
+通道判决：**H24「奇型是主通道」被否**（只注奇型收敛 38%——冷温次通道；只注慢变
+100% 无害）；**H25「white 是主通道」部分成立**（只注 white 收敛 0% 全灭；剥掉
+white 只救回 50%）。实测滤波后残差整段 replay 完全复现真实失败（q̂ +38.6%、
+SOC 16.1 pp），零残差对照 100% 收敛——**失败边界在残差结构，不在驱动剖面、
+DOD（0.87–0.98）或实现**。滤波后口径的新边界：**white ≤ ~10 mV、odd ≤ ~5–10 mV**；
+NCA 无一折进入可行区，「EKFQ 在 NCA 不行」的判词维持、理由更新。方向签名交叉
+验证通道：white 把 q 推向上、odd 拉向下，与真实数据的暖/冷温漂移方向一致。
+
 ## 安装
 
 ```bash
@@ -346,7 +359,14 @@ python scripts/26_floor_round3.py --stage h21  --dataset panasonic    # 约 3 mi
 python scripts/26_floor_round3.py --stage h22  --dataset panasonic    # 约 3 min
 python scripts/27_round7_figures.py                       # 三张第七轮图
 
-python -m pytest tests -q                        # 106 项，不需要数据集
+# 滤波后残差口径的 EKFQ 复验（v1.7）：probe / H23 / H24 / H25
+python scripts/28_ekfq_round4.py --stage probe --dataset panasonic   # 约 8 min
+python scripts/28_ekfq_round4.py --stage h23  --dataset panasonic   # 秒级
+python scripts/28_ekfq_round4.py --stage h24  --dataset panasonic   # 约 8 min
+python scripts/28_ekfq_round4.py --stage h25  --dataset panasonic   # 秒级
+python scripts/29_round8_figures.py                       # 三张第八轮图
+
+python -m pytest tests -q                        # 115 项，不需要数据集
 ```
 
 ## 局限
@@ -359,7 +379,10 @@ python -m pytest tests -q                        # 106 项，不需要数据集
   （增长律已精确验证）；真实数据上把容量建成滤波器状态反而吸收模型残差、结果更差（v1.2 §10.8）。
   第五轮（§10.10）找到了出口条件：残差压进 20 mV 后（LFP 的 ΔOCV 修正），容量**高估** 5% 时
   EKFQ 优于固定容量 EKF（1.63 vs 2.44 pp）—— 但只在高估侧成立，且 NCA（残差 41.7 mV）
-  不满足残差前提。外部锚点路线（v1.3 §10.9）已给出规格但尚未接真 SOH 估计器：A2 需交付
+  不满足残差前提。第八轮（§10.13）修订阈值口径：20 mV 是**慢变开环**残差的线；
+  滤波后的真实约束是 **white/快变非线性 ≤ ~10 mV 且 odd ≤ ~5–10 mV**（慢/偶被
+  u/b 状态吸收、清白）。NCA 无一折进入可行区；LFP 的条件性复活需换滤波后口径
+  重测（未做）。外部锚点路线（v1.3 §10.9）已给出规格但尚未接真 SOH 估计器：A2 需交付
   偏置 ≤ ±2 %、staleness（走速×刷新周期）≤ 4 %，NCA 另需 R̂0 保持 ±25 %；R1/τ 老化与
   SOC 参照点重算语义仍未做。
 - **OCV 需要静置 —— LFP 还需要动态形状重标定。** 表来自 HPPC 静置末电压；工况中电芯从未
