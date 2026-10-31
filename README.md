@@ -175,6 +175,27 @@ current and poisons q four times faster than slow drift, which structurally re-e
 NCA's EKFQ failure. LFP has no per-sample temperature data; its 17.6 mV and conditional
 EKFQ revival stand as in v1.4.
 
+**Cold low-current floor: an anatomy (v1.6).** The "42 mV even at 0–1 A" floor was the
+largest single block of the NCA residual median and the thermal fix does not touch it.
+Splitting the metric by physical regime first: at −20 °C the start-of-profile rest reads
+e ≈ dv ≈ −122 mV **constant for 300 s** (not a transient) while the OCV table matches the
+measured rest to +4.4 mV once dv is removed — so 34 % of the low-current SSE is a
+*constant-dv regime-mixing artifact* of the open-loop metric. The end-of-profile 300 s
+rest is genuinely unconverged (still rising at +68 mV/300 s, residual polarisation
+u_res ≈ +57 mV): another 11 % is *state*, absorbable by filter states. The remaining
+55 % is the true dynamic floor (45.9 mV at −20 °C). Pre-registered verdicts:
+**H20 "the OCV table is inconsistent" is rejected as the cause** (settled table gap
+≤ 13.5 mV; end-rest equilibrium bracket [−50, +30] mV contains 0; synthetic control
+recovers a 20 mV injected offset to 2 mV), **H21 "dv regime mixing + unconverged rest"
+is partially confirmed** (Δdv = −142 mV at −20 °C vs −13 mV at 25 °C is real and
+cold-specific; the net-removal metric cleared only 18 % against a 30 % line), and
+**H22 "the dynamic residual has shared structure" is rejected** (same-temperature LOO
+transfer: (u1,u2) kernel −10 %, bias+shape +1 % — v1.4's static recalibration route
+does not transfer to NCA cold). Takeaway: **the open-loop floor is not the filter
+floor** — only the 55 % block belongs in the filter error budget. Tail extrapolation
+on 300 s rests needs a constrained-τ prior (free-τ biases up to 26 mV; two-mode
+synthetic control bounds the constrained estimator at 1.6 mV).
+
 ## Install
 
 ```bash
@@ -356,7 +377,14 @@ python scripts/24_ekfq_boundary2.py --stage a             # residual-structure b
 python scripts/24_ekfq_boundary2.py --stage b --dataset panasonic     # thermal re-verify, ~6 min
 python scripts/25_round6_figures.py                       # four round-6 figures
 
-python -m pytest tests -q                        # 99 tests, no dataset needed
+# cold low-current floor anatomy (v1.6) — probe / H20 table gap / H21 regime mixing / H22 shared structure
+python scripts/26_floor_round3.py --stage probe --dataset panasonic    # ~6 min
+python scripts/26_floor_round3.py --stage h20  --dataset panasonic    # seconds
+python scripts/26_floor_round3.py --stage h21  --dataset panasonic    # ~3 min
+python scripts/26_floor_round3.py --stage h22  --dataset panasonic    # ~3 min
+python scripts/27_round7_figures.py                       # three round-7 figures
+
+python -m pytest tests -q                        # 106 tests, no dataset needed
 ```
 
 ## Limitations
@@ -376,20 +404,29 @@ python -m pytest tests -q                        # 99 tests, no dataset needed
   A2 must deliver bias ≤ ±2 %, staleness (walk × refresh period) ≤ 4 %, and on NCA R̂0 within
   ±25 %; R1/τ ageing and SOC-reference-event recomputation are still open.
 - **OCV needs rest — and on LFP also a dynamic shape recalibration.** The table comes from HPPC
-  rest-end voltages; during a drive the cell never fully relaxes, so the cold folds need `dv` up
-  to −138 mV. On LFP the C/20 curve's *shape* is wrong under dynamics (185 mV amplitude,
-  invisible at rest); `ShapeCorrected` fixes it (37.4 → 17.6 mV) but is not yet a default
-  pipeline step. NCA's residual is out-of-distribution cold high-power (US06 at −20 °C,
-  up to 242 mV) — a smooth model family cannot extrapolate there; R0(i, T) from high-rate
-  HPPC pulses is the stated route, not done.
+  rest-end voltages; during a drive the cell never fully relaxes. Round 7 (§10.12) shows the
+  table itself is self-consistent at settled rests (gap ≤ 13.5 mV) and that the cold `dv`
+  (up to −138 mV) is a *regime* inconsistency — static and dynamic segments want different
+  constants (Δdv 142 mV at −20 °C) — whose contribution to the open-loop floor is a
+  metric artifact (34 % of SSE), not a table error. On LFP the C/20 curve's *shape* is
+  wrong under dynamics (185 mV amplitude, invisible at rest); `ShapeCorrected` fixes it
+  (37.4 → 17.6 mV) but is not yet a default pipeline step. NCA's dynamic residual is
+  out-of-distribution cold high-power (US06 at −20 °C, up to 242 mV) — a smooth model
+  family cannot extrapolate there; R0(i, T) from high-rate HPPC pulses is the stated
+  route, not done.
 - **Adding RC branches does not lower the residual — and neither does a static current
   shape.** `τ2` hits the 6000 s bound in 17 of 24 NCA folds (24 of 24 on LFP), but a 3rd
   branch and a current-dependent R0 change LOO residual by only 0–1.9 % (parameters pinned
   at bounds = wrong model family). v1.5 further rejects static Δ(i)/BV-shape corrections
   (42.1 → 45.0 mV, worse): the high-power residual depends on **temperature history**
   (self-heating), not instantaneous current. Per-sample R(T_meas) is the working fix
-  (us06 tail −58 %, EKF median −26 %), but the cold low-current floor (42 mV even at
-  0–1 A) is the OCV rest/dynamics baseline inconsistency, untouched by any smooth ECM.
+  (us06 tail −58 %, EKF median −26 %). Round 7 (§10.12) dissects the cold low-current
+  floor (59 mV at −20 °C) into 34 % metric artifact + 11 % unconverged state + 55 %
+  true dynamic residual; the dynamic block is *non-shared* across profiles (LOO
+  transfer fails for both a (u1,u2) kernel and per-temperature bias/shape) and is not
+  fixed by adding branches — the open-loop floor is an upper bound on the filter-relevant
+  residual, and a structural model change (hysteresis/diffusion states) is the stated
+  route, not done.
 - **Current bias is given, not estimated.** The filter can only cancel it via voltage feedback
   (a 5th bias state is collinear with SOC on the plateau, hence unobservable).
 - **Convergence numbers are slightly optimistic**: a 300 s rest window is kept. For a

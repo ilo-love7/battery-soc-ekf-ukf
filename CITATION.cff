@@ -38,8 +38,21 @@ abstract: >-
   EKF median 3.21 -> 2.39 pp, while the cold low-current residual floor (42 mV) remains.
   Resolving the EKFQ boundary by residual structure revises the threshold to
   slow/even <= 20-30 mV and odd (current-correlated) <= 10-15 mV; an odd residual
-  poisons the capacity state four times faster than slow drift.
-version: 1.5.0
+  poisons the capacity state four times faster than slow drift. A seventh round
+  dissects the cold low-current floor (59 mV at -20 deg C, |i| <= 1 A) by physical
+  regime: 34 % of its low-current SSE is a constant-dv regime-mixing artifact of the
+  open-loop metric (the start-of-profile rest reads e = dv constantly, and the table
+  itself is self-consistent to 13.5 mV once rests are settled), 11 % is unconverged
+  relaxation state at the end-of-profile 300 s rest (u_res +57 mV, slope +68 mV/300 s),
+  and 55 % is a genuine dynamic model residual (45.9 mV) that is neither transferred
+  by per-temperature bias/shape recalibration (LOO cut +1 %) nor a shared (u1,u2)
+  kernel (cut -10 %) nor fixed by adding RC branches. Pre-registered verdicts: the
+  OCV-table-inconsistency hypothesis is rejected as the floor cause, the dv regime
+  inconsistency (142 mV at -20 deg C, cold-specific) plus unconverged state is
+  partially confirmed, and open-loop floor is shown to be an upper bound on the
+  filter-relevant residual. Tail extrapolation on 300 s rests requires a constrained
+  tau prior (free-tau bias up to 26 mV; two-mode synthetic control 1.6 mV).
+version: 1.6.0
 date-released: 2026-10-31
 license: MIT
 repository-code: "https://github.com/ilo-love7/battery-soc-ekf-ukf"

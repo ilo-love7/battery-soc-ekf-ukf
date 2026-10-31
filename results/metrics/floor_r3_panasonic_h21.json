@@ -1,0 +1,87 @@
+{
+ "dataset": "panasonic",
+ "lines": {
+  "L1_ddv_cold_mv": 80.0,
+  "L1_ddv_warm_mv": 15.0,
+  "L2_artifact_share": 0.3,
+  "L3_slope_mv300": 20.0
+ },
+ "checks": {
+  "L1_ddv": true,
+  "L2_artifact": false,
+  "L3_unconverged": true
+ },
+ "per_temp": {
+  "-20": {
+   "ddv_med_mv": -141.5969177897525,
+   "dv_static_med_mv": -4.3550335008256305,
+   "dv_dyn_med_mv": -145.76712539715228,
+   "dv_fit_med_mv": -127.27693770662495,
+   "low_rmse0_mv": 54.38003678107694,
+   "low_rmse_rebased_mv": 47.098128327789084,
+   "artifact_share": 0.1812594436992505,
+   "rest_sse_share_rebased": 0.2943786333301275,
+   "end_slope_mv300": 68.12175141242972,
+   "u_res_med_mv": 56.85099328362966,
+   "rho_enodv_T": 0.23773585100173317,
+   "t_swing_dyn_k": 10.05194712
+  },
+  "-10": {
+   "ddv_med_mv": -79.96432930530189,
+   "dv_static_med_mv": 3.931819098601117,
+   "dv_dyn_med_mv": -76.54534354003403,
+   "dv_fit_med_mv": -67.42439039990583,
+   "low_rmse0_mv": 36.38501192664973,
+   "low_rmse_rebased_mv": 34.27944023330197,
+   "artifact_share": 0.14471226110885,
+   "rest_sse_share_rebased": 0.33090531532082634,
+   "end_slope_mv300": 57.908333333333005,
+   "u_res_med_mv": 50.129760796206696,
+   "rho_enodv_T": 0.15094617393945337,
+   "t_swing_dyn_k": 7.371035590909091
+  },
+  "0": {
+   "ddv_med_mv": -44.97686295658179,
+   "dv_static_med_mv": 16.78892717301127,
+   "dv_dyn_med_mv": -28.01497793474141,
+   "dv_fit_med_mv": -31.75355676698599,
+   "low_rmse0_mv": 20.248099056653604,
+   "low_rmse_rebased_mv": 18.279474128452193,
+   "artifact_share": 0.23009112252784958,
+   "rest_sse_share_rebased": 0.13156141242680502,
+   "end_slope_mv300": 24.66666666666617,
+   "u_res_med_mv": 25.933091103905674,
+   "rho_enodv_T": 0.2492735609150092,
+   "t_swing_dyn_k": 5.2978944
+  },
+  "10": {
+   "ddv_med_mv": -17.493268873585862,
+   "dv_static_med_mv": 26.5264595195766,
+   "dv_dyn_med_mv": 9.669860109955957,
+   "dv_fit_med_mv": 9.362730844728146,
+   "low_rmse0_mv": 17.64233313754776,
+   "low_rmse_rebased_mv": 17.240768662080743,
+   "artifact_share": 0.016686526065141205,
+   "rest_sse_share_rebased": 0.060479789714796964,
+   "end_slope_mv300": 20.846590909091223,
+   "u_res_med_mv": 26.838800713556168,
+   "rho_enodv_T": 0.17448374741526335,
+   "t_swing_dyn_k": 5.523363
+  },
+  "25": {
+   "ddv_med_mv": -13.269004026854759,
+   "dv_static_med_mv": 15.4472019811109,
+   "dv_dyn_med_mv": 1.8333384506615835,
+   "dv_fit_med_mv": 2.438118931234117,
+   "low_rmse0_mv": 12.92924400114941,
+   "low_rmse_rebased_mv": 12.990904041238352,
+   "artifact_share": -0.0011515669643292203,
+   "rest_sse_share_rebased": 0.050459816147349165,
+   "end_slope_mv300": 13.94999999999998,
+   "u_res_med_mv": 15.277169575896885,
+   "rho_enodv_T": 0.04744795403696145,
+   "t_swing_dyn_k": 3.3520023333333366
+  }
+ },
+ "verdict": "部分成立：regime 不一致确认，但口径伪影份额不足（L2 未过）"
+}
