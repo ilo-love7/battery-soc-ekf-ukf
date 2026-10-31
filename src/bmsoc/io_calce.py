@@ -44,7 +44,11 @@ _COLMAP = {
 
 _KEEP = list(_COLMAP.keys())
 
-_NAME_RE = re.compile(r"^A123_(?P<kind>OCV|DST-US06-FUDS)[-_]?(?P<temp>N?\d+)?", re.I)
+_NAME_RE = re.compile(r"^A123_(?P<kind>OCV|DST-US06-FUDS)(?P<rest>.*)$", re.I)
+# 温度字段的三种写法：``25``、``-10``、``N10``（或 ``-N10``）。
+# 不能用「分隔符 + 数字」的写法：``A123_OCV-10`` 里的 "-" 是负号而不是分隔符，
+# 那样会被读成 +10 °C，与 ``A123_OCV10`` 撞车（本仓库踩过）。
+_TEMP_RE = re.compile(r"(?P<sign>-)?(?P<n>N)?-?(?P<num>\d+)", re.I)
 
 
 def data_root(root: str | None = None) -> str:
@@ -52,18 +56,36 @@ def data_root(root: str | None = None) -> str:
 
 
 def parse_package(path: str) -> Dict[str, object]:
-    """解析包名 → 测试类型与温度。``N10`` 表示 -10 °C。"""
+    """解析包名 → 测试类型与温度。
+
+    两个包族的命名规则**不一致**，必须分开处理（这是数据集的坑，不是笔误）：
+
+    ==========================  ==================  ==================
+    包名                        含义                解析
+    ==========================  ==================  ==================
+    ``A123_OCV-10-20120629``    −10 °C              ``-`` 是负号
+    ``A123_OCV25-20120905``     +25 °C              无分隔符
+    ``A123_DST-US06-FUDS-10``   +10 °C              ``-`` 是分隔符
+    ``A123_DST-US06-FUDS-N10``  −10 °C              ``N`` 表示负
+    ==========================  ==================  ==================
+
+    若按「``-`` 一律当分隔符」解析，``A123_OCV-10`` 会变成 +10 °C，与
+    ``A123_OCV10`` 撞车、静默丢掉一个温度档（本仓库踩过）。
+    """
     base = os.path.basename(path)
     m = _NAME_RE.match(base)
     if not m:
         raise ValueError(f"无法解析 CALCE 包名: {base}")
     kind = "ocv" if m.group("kind").upper() == "OCV" else "dst"
-    temp_raw = m.group("temp")
-    if temp_raw is None:
+    rest = m.group("rest").lstrip("_")
+    if kind == "dst":
+        rest = rest.lstrip("-")          # DST 的正温度写成 "-10"，此处 "-" 只是分隔
+    tm = _TEMP_RE.match(rest)
+    if tm is None:
         temp_c = float("nan")
     else:
-        t = temp_raw.upper()
-        temp_c = float(-int(t[1:]) if t.startswith("N") else int(t))
+        neg = bool(tm.group("sign")) or bool(tm.group("n"))
+        temp_c = float(-int(tm.group("num")) if neg else int(tm.group("num")))
     return {"kind": kind, "temp_c": temp_c, "package": base}
 
 
@@ -110,8 +132,15 @@ def read_sheet(path: str, sheet: str = "Channel_1-006",
 
     wb = load_workbook(path, read_only=True, data_only=True)
     try:
-        if sheet not in wb.sheetnames:
-            sheet = [s for s in wb.sheetnames if s.startswith("Channel")][0]
+        # 有的包里 'Channel_Chart' 是 Chartsheet（没有 iter_rows），必须跳过
+        def _has_cells(title: str) -> bool:
+            return hasattr(wb[title], "iter_rows")
+
+        if sheet not in wb.sheetnames or not _has_cells(sheet):
+            pref = [s for s in wb.sheetnames if s.startswith("Channel") and _has_cells(s)]
+            if not pref:
+                raise ValueError(f"{path} 无可读数据表（{wb.sheetnames}）")
+            sheet = pref[0]
         ws = wb[sheet]
         rows = ws.iter_rows(values_only=True)
         header = None

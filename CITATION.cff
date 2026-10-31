@@ -5,12 +5,15 @@ abstract: >-
   A reusable state-of-charge estimator package (coulomb counter, EKF, UKF, adaptive
   EKF) built on a temperature-aware second-order RC model with an explicit voltage-bias
   state. Benchmark on 24 Panasonic NCR18650PF driving profiles from -20 to 25 °C with
-  leave-one-profile-out parameter calibration. Reference results: 2.9-3.8 percentage
+  leave-one-profile-out parameter calibration, then transferred unchanged to 24 CALCE
+  A123 (LFP) discharge segments from -10 to 50 °C. Reference results: 2.9-3.8 percentage
   points SOC RMSE when the initial SOC is wrong by 30 pp; 1.7-3.1 pp for the adaptive
-  EKF; documented diagnosis of two UKF failure modes (inconsistent unscented weights and
-  OCV clamped outside SOC in [0,1]).
-version: 1.0.0
-date-released: 2026-10-30
+  EKF; 0.2-2.0 pp on LFP. Documented diagnosis of two UKF failure modes (inconsistent
+  unscented weights and OCV clamped outside SOC in [0,1]). Calibration-margin probe
+  shows capacity error (5-10 % -> 3-7 pp) dominates the error budget and cannot be
+  absorbed by any filter state, whereas a ±40 mV OCV-table error costs 0.6 pp or less.
+version: 1.1.0
+date-released: 2026-10-31
 license: MIT
 repository-code: "https://github.com/ilo-love7/battery-soc-ekf-ukf"
 keywords:
@@ -33,6 +36,13 @@ references:
     publisher: "McMaster University"
     year: 2018
     doi: "10.17632/wykht8y7tg.1"
+  - type: dataset
+    title: "CALCE Battery Data Set (A123 LFP: OCV and DST-US06-FUDS tests)"
+    authors:
+      - name: "University of Maryland, Center for Advanced Life Cycle Engineering (CALCE)"
+    publisher: "CALCE, University of Maryland"
+    year: 2012
+    url: "https://calce.umd.edu/battery-data"
   - type: article
     title: "State of Charge Estimation of Li-ion Batteries: A Review of Model-Based Methods"
     authors:

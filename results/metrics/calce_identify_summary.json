@@ -1,0 +1,22 @@
+{
+ "dataset": "CALCE A123 (LFP, 2.3 Ah nominal, heavily aged)",
+ "ocv_source": "C/20 slow discharge branch",
+ "ocv_smooth_mv": 1.5,
+ "dt": 1.0,
+ "n_profiles": 24,
+ "temps": [
+  -10.0,
+  0.0,
+  10.0,
+  20.0,
+  25.0,
+  30.0,
+  40.0,
+  50.0
+ ],
+ "val_rmse_median_mv": 38.1559162127149,
+ "val_rmse_p90_mv": 53.302216289971696,
+ "dv_median_mv": 36.99894840331768,
+ "tau2_at_bound": 24,
+ "elapsed_s": 3.6
+}

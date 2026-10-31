@@ -43,7 +43,7 @@ Four things this benchmark says that are worth knowing before you deploy a filte
   the cell by 30 K *while driving*, so a single-temperature table is off by tens of mV.
 - **Linear extrapolation outside SOC ∈ [0,1]** — required for UKF, harmless for EKF. See below.
 - **Leave-one-profile-out calibration** and **four stress scenarios** instead of one flattering number.
-- **59 unit tests, all on synthetic data** — they run without the datasets in CI (Python 3.10 + 3.12).
+- **72 unit tests, all on synthetic data** — they run without the datasets in CI (Python 3.10 + 3.12).
 
 ## Results
 
@@ -81,6 +81,30 @@ terms grow together in the cold, so cold is not automatically easier.**
 
 Figures: `docs/figures/` — OCV table & observability, LOO residuals, SOC tracking, error
 distribution, bias-state convergence, sensitivity, error CDF.
+
+### Cross-chemistry: LFP (CALCE A123)
+
+The same estimators, the same hyper-parameters and the same four scenarios, run **unchanged**
+on a second dataset — 24 segments, 8 temperatures (−10…50 °C), only the data layer swapped.
+Full section in `reports/基准评测报告-A4.md` §10.
+
+| scenario | cc | EKF | UKF | AEKF |
+|---|---|---|---|---|
+| `known` (0, 0 A) | 0.01 | **0.24** | – | – |
+| `bias20ma` | 2.16 | 1.96 | 1.87 | 1.95 |
+| `init30` | 28.13 | 0.99 | **0.56** | 1.10 |
+| `hard` | 26.90 | 1.35 | 1.98 | **1.29** |
+
+LFP is **not harder** here (0.2–2.0 pp vs 2.6–3.3 pp for NCA), and the reasons are measurable
+rather than lucky:
+
+- every segment starts at 100 % SOC, where the LFP curve is steep (30 pp ↔ 285 mV);
+- the plateau's SOC gain is tiny — `K_soc` 0.0002 vs 0.0046 for NCA, 23× — so neither model
+  error nor an OCV-table error moves the estimate.
+
+What does bite, on both chemistries, is a **capacity** error: 5 % → 2–4.5 pp, 10 % → 5–7.4 pp,
+and no filter state can absorb a *gain* error. By contrast a ±40 mV OCV-table error (constant or
+SOC-shaped) costs ≤ 0.6 pp, because the bias state absorbs it.
 
 ## Install
 
@@ -227,20 +251,32 @@ python scripts/03_fit_ecm_cycle.py --dt 2        # LOO calibration, ~40 s
 python scripts/04_benchmark_soc.py --dt 1        # 24 profiles × 4 scenarios, ~9 min
 python scripts/05_sensitivity.py --dt 1          # init / bias / noise sweeps, ~20 min
 python scripts/06_figures.py                     # docs/figures/*.png
-python -m pytest tests -q                        # 59 tests, no dataset needed
+
+# LFP (CALCE A123) — set CALCE_ROOT to the folder holding A123_*.zip
+python scripts/10_calce_prepare.py               # C/20 OCV + 24 leave-one-out folds, ~5 s
+python scripts/11_calce_benchmark.py --dt 1      # 24 segments × 4 scenarios, ~7 min
+python scripts/12_calibration_stress.py --dataset calce      # calibration margin, ~7 min
+python scripts/12_calibration_stress.py --dataset panasonic  # same probe on NCA, ~8 min
+python scripts/13_calce_figures.py               # three cross-chemistry figures
+
+python -m pytest tests -q                        # 72 tests, no dataset needed
 ```
 
 ## Limitations
 
-- **One cell only.** Panasonic NCR18650PF (NCA, 2.77 Ah measured). CALCE A123 (LFP) was surveyed
-  but not benchmarked — LFP's OCV plateau is very flat, a different problem class. Numbers do not transfer.
+- **Two chemistries, not a controlled comparison.** NCA (Panasonic NCR18650PF) and LFP
+  (CALCE A123, aged to ~45 % SOH) differ in cell, age, profile length *and* temperature grid,
+  so §10 only claims "the method transfers", never "LFP is easier". Both datasets also start
+  at 100 % SOC — mid-SOC power-up, where LFP is genuinely hard, is not tested.
+- **Capacity uncertainty dominates the error budget.** A 5–10 % capacity error costs 3–7 pp and
+  no filter state can absorb it (it is a gain error, not a bias). Coupling to SOH estimation
+  (project A2) is the missing link.
 - **OCV needs rest.** The table comes from HPPC rest-end voltages; during a drive the cell never
   fully relaxes, so the cold folds need `dv` up to −138 mV (0 of 24 folds hit the −150 mV bound,
   but the sign and magnitude vary monotonically with temperature).
-- **2-RC is not enough at multi-hour scale.** `τ2` hits the 6000 s bound in 17 of 24 folds; the
+- **2-RC is not enough at multi-hour scale.** `τ2` hits the 6000 s bound in 17 of 24 NCA folds (24 of 24
+  on LFP); the
   slow branch degenerates into a drift term. A 3rd-order or fractional model would use that DOF.
-- **No ageing model.** `Q_ref` and `R0` are per-temperature constants; coupling to SOH
-  estimation (project A2) is not done.
 - **Current bias is given, not estimated.** The filter can only cancel it via voltage feedback
   (a 5th bias state is collinear with SOC on the plateau, hence unobservable).
 - **Convergence numbers are slightly optimistic**: a 300 s rest window is kept. For a
