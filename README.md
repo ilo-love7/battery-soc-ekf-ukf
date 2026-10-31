@@ -43,7 +43,7 @@ Four things this benchmark says that are worth knowing before you deploy a filte
   the cell by 30 K *while driving*, so a single-temperature table is off by tens of mV.
 - **Linear extrapolation outside SOC ∈ [0,1]** — required for UKF, harmless for EKF. See below.
 - **Leave-one-profile-out calibration** and **four stress scenarios** instead of one flattering number.
-- **78 unit tests, all on synthetic data** — they run without the datasets in CI (Python 3.10 + 3.12).
+- **85 unit tests, all on synthetic data** — they run without the datasets in CI (Python 3.10 + 3.12).
 
 ## Results
 
@@ -127,6 +127,17 @@ voltage-indistinguishable from a slow capacity drift and gets absorbed into `q` 
 −6 % even when the true capacity is correct). Hyper-parameter sweeps confirm this is structural.
 Takeaway: capacity must come from an **external anchor** (SOH estimation, project A2), not from
 a single discharge segment.
+
+**Aging coupling & external SOH anchor (v1.3).** The anchor is now a code interface
+(`SoHSchedule`: piecewise-constant `Q̂(t)`/`R̂0(t)`, zero-order hold between refreshes), and its
+required quality is quantified. The capacity error growth law generalises exactly to drifting
+capacity (`err(k) = Σ(1/q̂ − 1/q_true)·i·dt/3600`, verified to 0.000000 pp). A2's spec comes out
+as two numbers: **SOH bias ≤ ±2 %** and **staleness (walk rate × refresh period) ≤ 4 %** —
+an un-refreshed SOH estimate drifting at 0.18 %/h costs 13.8 pp over a 2 h deep discharge,
+while a 5-minute refresh clamps it back to the floor (`err_end ≈ (ε + δ/2)·DOD`). Refresh fixes
+the integration *rate* only — accumulated error needs a SOC reference event (full charge / rest
+OCV) to be recomputed. Internal-resistance ageing matters on NCA (R̂0 doubled → +8.2 pp;
+LFP only +1.4) and is asymmetric: under-estimating R0 is cheap, over-estimating is not.
 
 ## Install
 
@@ -288,7 +299,12 @@ python scripts/15_capacity_q.py --dataset calce           # ~5 min
 python scripts/15_capacity_q.py --dataset panasonic       # ~6 min
 python scripts/16_round3_figures.py                       # two stress-test figures
 
-python -m pytest tests -q                        # 78 tests, no dataset needed
+# aging coupling (v1.3) — external SOH anchor: R0 coupling / anchor staleness / drift plant
+python scripts/17_aging_anchor.py --dataset calce         # ~13 min
+python scripts/17_aging_anchor.py --dataset panasonic     # ~17 min
+python scripts/18_round4_figures.py                       # two aging figures
+
+python -m pytest tests -q                        # 85 tests, no dataset needed
 ```
 
 ## Limitations
@@ -300,8 +316,10 @@ python -m pytest tests -q                        # 78 tests, no dataset needed
   power-up is 15–30× harder).
 - **Capacity uncertainty dominates the error budget, and online identification does not work.**
   A 5–10 % capacity error costs 3–7 pp (growth law verified exactly); adding capacity as a filter
-  state absorbs the model residual instead and degrades results (v1.2 §10.8). Coupling to SOH
-  estimation (project A2) is the missing link — and it is not optional.
+  state absorbs the model residual instead and degrades results (v1.2 §10.8). The external-anchor
+  route (v1.3 §10.9) is specified but not yet wired to a real SOH estimator: A2 must deliver
+  bias ≤ ±2 %, staleness (walk × refresh period) ≤ 4 %, and on NCA R̂0 within ±25 %; R1/τ ageing
+  and SOC-reference-event recomputation are still open.
 - **OCV needs rest.** The table comes from HPPC rest-end voltages; during a drive the cell never
   fully relaxes, so the cold folds need `dv` up to −138 mV (0 of 24 folds hit the −150 mV bound,
   but the sign and magnitude vary monotonically with temperature).

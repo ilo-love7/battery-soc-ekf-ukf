@@ -8,8 +8,9 @@ import numpy as np
 import pytest
 
 from bmsoc import ocv as ocvmod
-from bmsoc.ecm import RCParams, simulate
-from bmsoc.filters import AEKF, ESTIMATORS, EKF, EKFQ, UKF, CoulombCounter, FilterConfig, make
+from bmsoc.ecm import RCParams, simulate, simulate_tv
+from bmsoc.filters import (AEKF, ESTIMATORS, EKF, EKFQ, UKF, CoulombCounter, FilterConfig,
+                           SoHSchedule, make)
 from bmsoc.profiles import DrivingProfile
 
 TRUE = RCParams(r0=0.030, r1=0.012, tau1=10.0, r2=0.040, tau2=400.0)
@@ -231,3 +232,112 @@ def test_ekfq_f_jacobian_has_capacity_column():
     assert F[0, 4] == pytest.approx(2.0 * DT / (3600.0 * 4.0), abs=1e-12)  # η=1, −(−2)
     F2 = est._F(DT, i=2.0, q=2.0)
     assert F2[0, 4] < 0
+
+
+# ---- SoHSchedule：A2 外部 SOH 锚点（Q̂/R̂0 零阶保持）----
+# 这些测试守的是 §23 的路线改道：容量不在线辨识，改由外部锚点供给。
+
+def test_soh_schedule_zoh_lookup():
+    sch = SoHSchedule(t_upd=[0.0, 600.0, 1200.0], q_ah=[2.4, 2.5, 2.45],
+                      r0_ohm=[0.03, 0.035, 0.04])
+    assert sch.q(-10.0) == pytest.approx(2.4)       # 早于首点 → 取第一个值
+    assert sch.q(599.9) == pytest.approx(2.4)       # 零阶保持
+    assert sch.q(600.0) == pytest.approx(2.5)       # 刷新点当场生效
+    assert sch.q(9999.0) == pytest.approx(2.45)     # 末点之后一直保持
+    assert sch.r0(700.0, default=0.01) == pytest.approx(0.035)
+    qa = sch.q_at(np.array([-1.0, 100.0, 600.0, 1500.0]))
+    assert qa == pytest.approx([2.4, 2.4, 2.5, 2.45])
+    sch2 = SoHSchedule([0.0], [2.5])                # 不给 r0 → 回退模型参数
+    assert sch2.r0(100.0, default=0.0123) == pytest.approx(0.0123)
+
+
+def test_soh_schedule_validation():
+    with pytest.raises(ValueError):
+        SoHSchedule([], [])                          # 空
+    with pytest.raises(ValueError):
+        SoHSchedule([0.0], [2.5, 2.6])               # 长度不一致
+    with pytest.raises(ValueError):
+        SoHSchedule([0.0, 0.0], [2.5, 2.6])          # t_upd 非严格递增
+    with pytest.raises(ValueError):
+        SoHSchedule([0.0, 1.0], [2.5, -1.0])         # q 非正
+    with pytest.raises(ValueError):
+        SoHSchedule([0.0, 1.0], [2.5, 2.6], r0_ohm=[0.01])   # r0 长度不一致
+
+
+def test_cc_with_anchor_step_schedule_exact():
+    """锚点在 t=180 s 刷新容量 → 库仑计数的积分速率当场改变（精确核对）。"""
+    n = 361
+    i = np.full(n, -2.0)
+    prof = DrivingProfile(np.arange(n) * DT, i, np.zeros(n), np.full(n, 25.0),
+                          np.zeros(n), CAP)
+    anchor = SoHSchedule(t_upd=[0.0, 180.0], q_ah=[CAP, 2.0 * CAP])
+    est = CoulombCounter(ocv=_curve(), params=TRUE, capacity_ah=CAP,
+                         cfg=FilterConfig(soc0=1.0))
+    out = est.run(prof, anchor=anchor)
+    # 前 180 步按 CAP 积分、后 180 步按 2·CAP 积分（2 A 放电）
+    ah = 2.0 * 180.0 / 3600.0
+    expected = 1.0 - ah / CAP - ah / (2.0 * CAP)
+    assert out["soc_hat"][-1] == pytest.approx(expected, abs=1e-9)
+
+
+def test_cc_generalized_growth_law_under_drift():
+    """时变容量下的广义增长律：err(k) = Σ_{j<k} (1/q̂ − 1/q_true(j))·i_j·dt/3600。
+
+    §23 的静态式 err_end = −(1/s−1)(1−SOC_end) 是它 q 恒定的特例。
+    这里 q_true 线性老化 −5%，q̂ 停在起点的陈旧值（A2 刷新不及时的极端情形），
+    库仑计数的逐点误差必须精确落在理论轨迹上。"""
+    n = 2000
+    rng = np.random.default_rng(3)
+    i = np.clip(rng.normal(-1.0, 0.8, n), -3.0, 0.5)
+    i[0] = 0.0
+    q_true = np.linspace(CAP, 0.95 * CAP, n)          # 老化：容量 −5%
+    out = simulate_tv(RCParams(*TRUE.as_array()), _curve(), i, DT, q_arr=q_true,
+                      r0_arr=TRUE.r0, soc0=0.9)
+    prof = DrivingProfile(np.arange(n) * DT, i, out["voltage"], np.full(n, 25.0),
+                          out["soc"], CAP, meta={"profile": "synth"})
+    stale = SoHSchedule(t_upd=[0.0], q_ah=[CAP])       # 从不刷新
+    got = CoulombCounter(ocv=_curve(), params=TRUE, capacity_ah=CAP,
+                         cfg=FilterConfig(soc0=0.9)).run(prof, anchor=stale)
+    term = (1.0 / CAP - 1.0 / q_true) * i * DT / 3600.0
+    theory = np.zeros(n)
+    theory[1:] = np.cumsum(term[:-1])
+    err = got["soc_hat"] - prof.soc_ref
+    assert np.max(np.abs(err - theory)) < 1e-9
+
+
+def test_anchor_r0_schedule_reaches_estimator():
+    """R̂0 走锚点：与真值一致时跟踪不变，放大 2 倍时跟踪显著变差。"""
+    prof = _synth()
+    cfg = FilterConfig(soc0=0.9, sigma_soc0=0.02)
+    kw = dict(ocv=_curve(), params=TRUE, capacity_ah=CAP, cfg=cfg)
+    good = EKF(**kw).run(prof, anchor=SoHSchedule([0.0], [CAP], [TRUE.r0]))
+    bad = EKF(**kw).run(prof, anchor=SoHSchedule([0.0], [CAP], [2.0 * TRUE.r0]))
+    e_good = np.sqrt(np.mean((good["soc_hat"] - prof.soc_ref) ** 2))
+    e_bad = np.sqrt(np.mean((bad["soc_hat"] - prof.soc_ref) ** 2))
+    assert e_good < 0.01
+    assert e_bad > 2.0 * e_good
+
+
+def test_simulate_tv_static_matches_simulate():
+    """q/r0 恒定时 simulate_tv 必须与 simulate 逐点一致（回归胶水）。"""
+    n = 500
+    rng = np.random.default_rng(11)
+    i = rng.normal(0.0, 1.5, n)
+    i[0] = 0.0
+    base = simulate(RCParams(*TRUE.as_array()), _curve(), i, DT, soc0=0.8, capacity_ah=CAP)
+    tv = simulate_tv(RCParams(*TRUE.as_array()), _curve(), i, DT,
+                     q_arr=CAP, r0_arr=TRUE.r0, soc0=0.8)
+    for key in ("soc", "u1", "u2", "voltage"):
+        assert np.allclose(tv[key], base[key], atol=1e-12)
+
+
+def test_ekfq_ignores_anchor_q_but_uses_r0():
+    """EKFQ 的容量只来自状态 x[4]：锚点 Q̂ 被忽略（文档契约），R̂0 仍生效。"""
+    prof = _synth()
+    cfg = FilterConfig(soc0=0.7, sigma_soc0=0.2)
+    kw = dict(ocv=_curve(), params=TRUE, capacity_ah=CAP, cfg=cfg)
+    plain = EKFQ(**kw).run(prof)
+    same = EKFQ(**kw).run(prof, anchor=SoHSchedule([0.0], [CAP * 1.10]))
+    assert np.allclose(same["soc_hat"], plain["soc_hat"], atol=1e-12)
+    shifted = EKFQ(**kw).run(prof, anchor=SoHSchedule([0.0], [CAP], [2.0 * TRUE.r0]))
+    assert not np.allclose(shifted["soc_hat"], plain["soc_hat"])

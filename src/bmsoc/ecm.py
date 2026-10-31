@@ -102,6 +102,43 @@ def simulate(p: RCParams, ocv, current_a: np.ndarray, dt: float,
     return {"soc": soc, "u1": u1, "u2": u2, "voltage": v}
 
 
+def simulate_tv(p: RCParams, ocv, current_a: np.ndarray, dt: float,
+                q_arr, r0_arr, soc0: float = 1.0, temp_c=25.0,
+                eta: float = 1.0, u0: Optional[Tuple[float, float]] = None,
+                residual_v: float | np.ndarray = 0.0) -> Dict[str, np.ndarray]:
+    """**时变**容量/内阻的前向仿真 —— 老化耦合实验（脚本 17）的「植物」。
+
+    与 :func:`simulate` 只有两处不同：
+
+    1. SOC 积分用逐步容量 ``q_arr[k]``（对应 ``Q_ref`` 随老化下降），
+       真值 SOC = ``soc0 + ∫i dτ / (3600·q(τ))``；
+    2. 端电压欧姆项用逐步内阻 ``r0_arr[k]``（老化使 R0 上升）。
+
+    ``q_arr``/``r0_arr`` 可以是与 ``current_a`` 同长的数组，也可以是标量。
+    ``residual_v`` 注入慢变电压残差（V），模拟真实开环残差（38–53 mV 量级），
+    避免「模型精确」的温室让滤波器表现虚高。
+    """
+    i = np.asarray(current_a, dtype=float)
+    n = i.size
+    q = np.broadcast_to(np.asarray(q_arr, dtype=float), (n,)).astype(float).copy()
+    r0 = np.broadcast_to(np.asarray(r0_arr, dtype=float), (n,)).astype(float).copy()
+    if np.any(q <= 0):
+        raise ValueError("q_arr 必须为正")
+    a1, b1, a2, b2 = step_matrices(p, dt)
+    soc = np.empty(n)
+    u1 = np.empty(n)
+    u2 = np.empty(n)
+    soc[0] = soc0
+    u1[0], u2[0] = u0 if u0 is not None else (0.0, 0.0)
+    for k in range(n - 1):
+        soc[k + 1] = soc[k] + eta * i[k] * dt / (3600.0 * q[k])
+        u1[k + 1] = a1 * u1[k] + b1 * i[k]
+        u2[k + 1] = a2 * u2[k] + b2 * i[k]
+    v = (_ocv_at(ocv, soc, temp_c) + u1 + u2 + r0 * i
+         + getattr(p, "dv", 0.0) + np.broadcast_to(np.asarray(residual_v, float), (n,)))
+    return {"soc": soc, "u1": u1, "u2": u2, "voltage": v, "q": q, "r0": r0}
+
+
 def model_voltage(p: RCParams, ocv: float, current_a: np.ndarray, dt: float) -> np.ndarray:
     """OCV 固定时，脉冲窗口内的电压轨迹（辨识用）。
 

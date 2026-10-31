@@ -17,8 +17,12 @@ abstract: >-
   effect, not a chemistry effect), and online capacity identification as a fifth filter
   state fails on real data because the 38-53 mV model residual is voltage-
   indistinguishable from capacity drift. The capacity error growth law
-  err_end = -(1/s-1)(1-SOC_end) is verified point-for-point.
-version: 1.2.0
+  err_end = -(1/s-1)(1-SOC_end) is verified point-for-point and generalises exactly to
+  drifting capacity. An external SOH-anchor interface (SoHSchedule, piecewise-constant
+  Q-hat(t)/R0-hat(t)) quantifies what a companion SOH estimator must deliver: bias
+  within +/-2 %, staleness (walk rate x refresh period) within 4 %, and R0 within
+  +/-25 % on NCA (R0 doubled costs +8.2 pp there, +1.4 pp on LFP).
+version: 1.3.0
 date-released: 2026-10-31
 license: MIT
 repository-code: "https://github.com/ilo-love7/battery-soc-ekf-ukf"

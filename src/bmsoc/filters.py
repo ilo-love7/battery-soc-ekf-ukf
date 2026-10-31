@@ -5,6 +5,15 @@
     est = EKF(ocv=ocv2d, params=rc, capacity_ah=2.6, cfg=FilterConfig(soc0=0.7))
     out = est.run(profile, current_bias_a=0.02)
 
+外部 SOH 锚点（A2 接口）
+------------------------
+容量不能在线联合估计（``EKFQ`` 在真实数据上已证伪，工作记录 §23），只能来自
+外部锚点。``SoHSchedule`` 把 A2（实车 SOH）按周期输出的 ``Q̂(t)``/``R̂0(t)`` 传进来，
+两次刷新之间零阶保持::
+
+    anchor = SoHSchedule(t_upd=[0, 600, 1200], q_ah=[2.45, 2.47, 2.44])
+    out = est.run(profile, anchor=anchor)
+
 状态 ``x = [soc, u1, u2, b]``：前三个是二阶 RC 的 SOC 与两条极化支路，
 ``b`` 是**电压偏置状态**（模型 OCV 与实测之间的系统差）。
 
@@ -72,6 +81,68 @@ class FilterConfig:
     soc_clip: Tuple[float, float] = (-0.05, 1.05)
 
 
+class SoHSchedule:
+    """外部 SOH 锚点：A2 按周期给出的 ``Q̂(t)``、``R̂0(t)``（分段常值，零阶保持）。
+
+    为什么容量只能来自外部
+    ----------------------
+    ``EKFQ`` 把容量当第五状态在线估计，在合成数据（模型精确）上有效，在真实
+    数据上全线劣化 —— 38–53 mV 的模型残差与容量误差在电压上同构，``q`` 把残差
+    当容量吸收（工作记录 §23，超参扫描证明是结构性失败）。于是容量改由外部
+    锚点（A2 的 SOH 输出）供给，本类就是那个接口。
+
+    参数
+    ----
+    t_upd : (m,) 各次刷新的时刻（s，与 ``profile.t_s`` 同轴，严格递增）
+    q_ah : (m,) 各次刷新的容量估计 (Ah)，须 > 0
+    r0_ohm : (m,) 各次刷新的欧姆内阻估计 (Ω)，可选。缺项（None）处不覆盖，
+        估计器回退到模型参数 ``params.r0``。
+
+    早于首个刷新时刻的 ``t`` 取第一个值（上电即持有第一次 SOH 输出）。
+    """
+
+    def __init__(self, t_upd, q_ah, r0_ohm=None):
+        self.t_upd = np.asarray(t_upd, dtype=float).reshape(-1)
+        self.q_ah = np.asarray(q_ah, dtype=float).reshape(-1)
+        self.r0_ohm = None if r0_ohm is None else np.asarray(r0_ohm, dtype=float).reshape(-1)
+        if self.t_upd.size == 0:
+            raise ValueError("t_upd 不能为空")
+        if self.t_upd.size != self.q_ah.size:
+            raise ValueError("t_upd 与 q_ah 长度不一致")
+        if self.r0_ohm is not None and self.r0_ohm.size != self.t_upd.size:
+            raise ValueError("r0_ohm 与 t_upd 长度不一致")
+        if self.t_upd.size > 1 and np.any(np.diff(self.t_upd) <= 0):
+            raise ValueError("t_upd 必须严格递增")
+        if np.any(self.q_ah <= 0):
+            raise ValueError("q_ah 必须为正")
+
+    def _idx(self, t) -> np.ndarray:
+        """零阶保持查找：最后一个 ``t_upd <= t`` 的下标，早于首点则取 0。"""
+        t_arr = np.asarray(t, dtype=float)
+        j = np.searchsorted(self.t_upd, t_arr, side="right") - 1
+        return np.clip(j, 0, self.t_upd.size - 1)
+
+    def q_at(self, t, default: Optional[float] = None) -> np.ndarray:
+        """向量版容量查找。 ``default`` 仅为接口对称保留，恒用锚点值。"""
+        return self.q_ah[self._idx(t)]
+
+    def r0_at(self, t, default: float) -> np.ndarray:
+        """向量版内阻查找；锚点未给 r0 时用 ``default``（模型参数）。"""
+        t_arr = np.atleast_1d(np.asarray(t, dtype=float))
+        if self.r0_ohm is None:
+            return np.full(t_arr.shape, float(default))
+        out = self.r0_ohm[self._idx(t_arr)]
+        return out
+
+    def q(self, t: float) -> float:
+        return float(self.q_ah[self._idx(t)])
+
+    def r0(self, t: float, default: float) -> float:
+        if self.r0_ohm is None:
+            return float(default)
+        return float(self.r0_ohm[self._idx(t)])
+
+
 class _BaseFilter:
     name = "base"
 
@@ -88,10 +159,12 @@ class _BaseFilter:
             self._ab_cache = (dt, step_matrices(self.p, dt))
         return self._ab_cache[1]
 
-    def _predict(self, x: np.ndarray, i: float, dt: float, clip: bool = True) -> np.ndarray:
+    def _predict(self, x: np.ndarray, i: float, dt: float, clip: bool = True,
+                 q: Optional[float] = None) -> np.ndarray:
         c = self.cfg
         a1, b1, a2, b2 = self._ab(dt)
-        soc = x[0] + c.eta * i * dt / (3600.0 * self.q_cap)
+        q_cap = self.q_cap if q is None else max(float(q), 1e-6)
+        soc = x[0] + c.eta * i * dt / (3600.0 * q_cap)
         u1 = a1 * x[1] + b1 * i
         u2 = a2 * x[2] + b2 * i
         bias = x[3]
@@ -102,9 +175,11 @@ class _BaseFilter:
                          float(np.clip(u2, -c.u_clip, c.u_clip)),
                          float(np.clip(bias, -c.b_clip, c.b_clip))])
 
-    def _h(self, x: np.ndarray, i: float, temp_c: float = 25.0) -> float:
+    def _h(self, x: np.ndarray, i: float, temp_c: float = 25.0,
+           r0: Optional[float] = None) -> float:
+        r0_use = self.p.r0 if r0 is None else float(r0)
         return (_ocv_scalar(self.ocv, float(x[0]), temp_c) + x[1] + x[2]
-                + self.p.r0 * i + getattr(self.p, "dv", 0.0) + x[3])
+                + r0_use * i + getattr(self.p, "dv", 0.0) + x[3])
 
     def _H(self, x: np.ndarray, temp_c: float) -> np.ndarray:
         return np.array([[_docv_scalar(self.ocv, float(x[0]), temp_c), 1.0, 1.0, 1.0]])
@@ -124,11 +199,16 @@ class _BaseFilter:
 
     def run(self, profile: DrivingProfile, voltage_noise: float = 0.0,
             seed: int = 0, soc_init: Optional[float] = None,
-            current_bias_a: float = 0.0) -> Dict[str, np.ndarray]:
+            current_bias_a: float = 0.0,
+            anchor: Optional[SoHSchedule] = None) -> Dict[str, np.ndarray]:
         """跑一段工况。
 
         ``current_bias_a``：电流传感器偏置（A）。只影响估计器看到的电流，
         真值 SOC 仍由原始电流积分，故库仑计数会随偏置线性漂移。
+
+        ``anchor``：外部 SOH 锚点（A2 接口）。给出后，逐步的容量/内阻取
+        ``anchor`` 的零阶保持值，覆盖构造参数 ``capacity_ah``/``params.r0``。
+        与 ``EKFQ`` 不兼容（容量由状态 ``x[4]`` 自己演化，见其文档）。
         """
         prof = _as_profile(profile)
         dt = prof.dt
@@ -141,9 +221,17 @@ class _BaseFilter:
                                   voltage_v=prof.voltage_v, temp_c=prof.temp_c,
                                   soc_ref=prof.soc_ref, capacity_ah=prof.capacity_ah,
                                   meta=dict(prof.meta))
-        return self._run(prof, dt, v_meas, soc_init)
+        q_arr, r0_arr = self._anchor_arrays(prof, anchor)
+        return self._run(prof, dt, v_meas, soc_init, q_arr, r0_arr)
 
-    def _run(self, prof, dt, v_meas, soc_init):  # pragma: no cover - 抽象
+    def _anchor_arrays(self, prof, anchor: Optional[SoHSchedule]):
+        n = len(prof)
+        if anchor is None:
+            return np.full(n, self.q_cap), np.full(n, self.p.r0)
+        return (np.asarray(anchor.q_at(prof.t_s), dtype=float),
+                np.asarray(anchor.r0_at(prof.t_s, default=self.p.r0), dtype=float))
+
+    def _run(self, prof, dt, v_meas, soc_init, q_arr=None, r0_arr=None):  # pragma: no cover - 抽象
         raise NotImplementedError
 
     @staticmethod
@@ -160,12 +248,13 @@ class CoulombCounter(_BaseFilter):
 
     name = "cc"
 
-    def _run(self, prof, dt, v_meas, soc_init):
+    def _run(self, prof, dt, v_meas, soc_init, q_arr=None, r0_arr=None):
         n = len(prof)
         soc = np.empty(n)
         soc[0] = self.cfg.soc0 if soc_init is None else float(soc_init)
+        q_arr = np.full(n, self.q_cap) if q_arr is None else np.asarray(q_arr, float)
         for k in range(n - 1):
-            soc[k + 1] = soc[k] + self.cfg.eta * prof.current_a[k] * dt / (3600.0 * self.q_cap)
+            soc[k + 1] = soc[k] + self.cfg.eta * prof.current_a[k] * dt / (3600.0 * q_arr[k])
         return self._pack(np.clip(soc, *self.cfg.soc_clip), np.zeros(n), np.zeros(n),
                           np.zeros(n), np.full(n, np.nan), np.full(n, np.nan))
 
@@ -179,10 +268,12 @@ class EKF(_BaseFilter):
         F[1, 1], F[2, 2] = a1, a2
         return F
 
-    def _run(self, prof, dt, v_meas, soc_init):
+    def _run(self, prof, dt, v_meas, soc_init, q_arr=None, r0_arr=None):
         c = self.cfg
         n = len(prof)
         i_arr, t_arr = prof.current_a, prof.temp_c
+        q_arr = np.full(n, self.q_cap) if q_arr is None else np.asarray(q_arr, float)
+        r0_arr = np.full(n, self.p.r0) if r0_arr is None else np.asarray(r0_arr, float)
         x = self._init_state(soc_init, float(i_arr[0]) if n else 0.0)
         P = self._init_cov()
         F = self._F(dt)
@@ -192,10 +283,10 @@ class EKF(_BaseFilter):
         gain = np.zeros(n); sig = np.empty(n); vp = np.empty(n); bh = np.zeros(n)
         for k in range(n):
             if k > 0:
-                x = self._predict(x, i_arr[k - 1], dt)
+                x = self._predict(x, i_arr[k - 1], dt, q=q_arr[k - 1])
                 P = F @ P @ F.T + Q
             H = self._H(x, float(t_arr[k]))
-            y_hat = self._h(x, i_arr[k], float(t_arr[k]))
+            y_hat = self._h(x, i_arr[k], float(t_arr[k]), r0=r0_arr[k])
             S = float((H @ P @ H.T)[0, 0]) + R
             K = (P @ H.T).reshape(-1) / S
             e = float(v_meas[k]) - y_hat
@@ -250,10 +341,12 @@ class UKF(_BaseFilter):
             X[1 + NDIM + j] = mu - L[:, j]
         return X
 
-    def _run(self, prof, dt, v_meas, soc_init):
+    def _run(self, prof, dt, v_meas, soc_init, q_arr=None, r0_arr=None):
         c = self.cfg
         n = len(prof)
         i_arr, t_arr = prof.current_a, prof.temp_c
+        q_arr = np.full(n, self.q_cap) if q_arr is None else np.asarray(q_arr, float)
+        r0_arr = np.full(n, self.p.r0) if r0_arr is None else np.asarray(r0_arr, float)
         x = self._init_state(soc_init, float(i_arr[0]) if n else 0.0)
         P = self._init_cov()
         Q = self._Q()
@@ -265,14 +358,15 @@ class UKF(_BaseFilter):
         for k in range(n):
             if k > 0:
                 X = self._sigma(x, P, scl)
-                Xp = np.array([self._predict(pt, i_arr[k - 1], dt, clip=False) for pt in X])
+                Xp = np.array([self._predict(pt, i_arr[k - 1], dt, clip=False, q=q_arr[k - 1])
+                               for pt in X])
                 x = wm @ Xp
                 x[0] = float(np.clip(x[0], *c.soc_clip))
                 dX = Xp - x
                 P = (wc[:, None, None] * np.einsum("ij,ik->ijk", dX, dX)).sum(0) + Q
                 P = self._psd(P)
             X = self._sigma(x, P, scl)
-            Y = np.array([self._h(pt, i_arr[k], float(t_arr[k])) for pt in X])
+            Y = np.array([self._h(pt, i_arr[k], float(t_arr[k]), r0=r0_arr[k]) for pt in X])
             y_hat = float(wm @ Y)
             dY = Y - y_hat
             S = float((wc * dY * dY).sum()) + R
@@ -302,10 +396,12 @@ class AEKF(EKF):
         self.r_min, self.r_max = float(r_min), float(r_max)
         self.adapt_every = int(adapt_every)
 
-    def _run(self, prof, dt, v_meas, soc_init):
+    def _run(self, prof, dt, v_meas, soc_init, q_arr=None, r0_arr=None):
         c = self.cfg
         n = len(prof)
         i_arr, t_arr = prof.current_a, prof.temp_c
+        q_arr = np.full(n, self.q_cap) if q_arr is None else np.asarray(q_arr, float)
+        r0_arr = np.full(n, self.p.r0) if r0_arr is None else np.asarray(r0_arr, float)
         x = self._init_state(soc_init, float(i_arr[0]) if n else 0.0)
         P = self._init_cov()
         F = self._F(dt)
@@ -317,10 +413,10 @@ class AEKF(EKF):
         buf = []
         for k in range(n):
             if k > 0:
-                x = self._predict(x, i_arr[k - 1], dt)
+                x = self._predict(x, i_arr[k - 1], dt, q=q_arr[k - 1])
                 P = F @ P @ F.T + Q
             H = self._H(x, float(t_arr[k]))
-            y_hat = self._h(x, i_arr[k], float(t_arr[k]))
+            y_hat = self._h(x, i_arr[k], float(t_arr[k]), r0=r0_arr[k])
             S = float((H @ P @ H.T)[0, 0]) + R
             K = (P @ H.T).reshape(-1) / S
             e = float(v_meas[k]) - y_hat
@@ -390,7 +486,9 @@ class EKFQ(EKF):
         F[0, 4] = -self.cfg.eta * float(i) * dt / (3600.0 * q * q)
         return F
 
-    def _predict(self, x: np.ndarray, i: float, dt: float, clip: bool = True) -> np.ndarray:
+    def _predict(self, x: np.ndarray, i: float, dt: float, clip: bool = True,
+                 q: Optional[float] = None) -> np.ndarray:
+        """``q`` 参数忽略：EKFQ 的容量来自状态 ``x[4]``，不接受外部锚点覆盖。"""
         c = self.cfg
         a1, b1, a2, b2 = self._ab(dt)
         q = max(float(x[4]), 1e-6)
@@ -421,10 +519,12 @@ class EKFQ(EKF):
         c = self.cfg
         return np.diag([c.q_soc, c.q_u, c.q_u, c.q_b, self.q_q])
 
-    def _run(self, prof, dt, v_meas, soc_init):
+    def _run(self, prof, dt, v_meas, soc_init, q_arr=None, r0_arr=None):
         c = self.cfg
         n = len(prof)
         i_arr, t_arr = prof.current_a, prof.temp_c
+        # q_arr 忽略：容量由状态 x[4] 演化，外部锚点的 Q̂ 与 EKFQ 互斥（r0 仍生效）
+        r0_arr = np.full(n, self.p.r0) if r0_arr is None else np.asarray(r0_arr, float)
         x = self._init_state(soc_init, float(i_arr[0]) if n else 0.0)
         P = self._init_cov()
         Q = self._Q()
@@ -441,7 +541,7 @@ class EKFQ(EKF):
             # 容量下限保护：q 只允许在 [0.5, 1.5]×初值内游走，防止奇异
             x[4] = float(np.clip(x[4], 0.5 * self.q_cap, 1.5 * self.q_cap))
             H = self._H(x, float(t_arr[k]))
-            y_hat = self._h(x, i_arr[k], float(t_arr[k]))
+            y_hat = self._h(x, i_arr[k], float(t_arr[k]), r0=r0_arr[k])
             S = float((H @ P @ H.T)[0, 0]) + R
             K = (P @ H.T).reshape(-1) / S
             e = float(v_meas[k]) - y_hat
