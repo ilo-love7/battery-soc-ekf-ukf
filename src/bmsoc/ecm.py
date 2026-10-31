@@ -432,7 +432,8 @@ def _unpack_vec(vec) -> tuple:
 
 def fit_cycle_params(windows, soc_knots=(0.1, 0.5, 0.9), x0: Optional[np.ndarray] = None,
                      max_nfev: int = 400, dv_bound: float = 0.12, loss: str = "linear",
-                     n_rc: int = 2, fit_r0_cur: bool = False):
+                     n_rc: int = 2, fit_r0_cur: bool = False,
+                     tau3_bounds: tuple = (200.0, 50000.0)):
     """在整段动态工况上拟合电气参数（OCV 固定）。
 
     ``windows``：``[(soc, current, voltage, dt, ocv_curve[, temp]), ...]``
@@ -440,8 +441,10 @@ def fit_cycle_params(windows, soc_knots=(0.1, 0.5, 0.9), x0: Optional[np.ndarray
     可选第三支路 ``R3/τ3``（``n_rc=3``）、可选电流相关内阻 ``r0_cur``
     （``fit_r0_cur=True``），以及 OCV 基准偏移 ``dv``。
 
-    ``n_rc=3`` 时第三支路的时间常数上界放到 50000 s —— 残差摸底显示 τ2 长期
-    顶在 6000 s 上界（慢极化想当积分器用），第三条支路要接住的就是它。
+    ``n_rc=3`` 时第三支路时间常数默认 ``tau3_bounds=(200, 50000)`` s —— 残差摸底
+    显示 τ2 长期顶在 6000 s 上界（慢极化想当积分器用），第三条支路要接住的就是它。
+    第十轮快端对照可传 ``tau3_bounds=(0.5, 30)`` 把第三支路钉到快端
+    （与默认慢端是同一枚硬币的两面）。
 
     返回的向量布局见 :func:`_unpack_vec`。
     """
@@ -449,6 +452,9 @@ def fit_cycle_params(windows, soc_knots=(0.1, 0.5, 0.9), x0: Optional[np.ndarray
 
     if n_rc not in (2, 3):
         raise ValueError("n_rc 只支持 2 或 3")
+    t3_lo, t3_hi = float(tau3_bounds[0]), float(tau3_bounds[1])
+    if not (0.0 < t3_lo < t3_hi):
+        raise ValueError(f"tau3_bounds 不合法：{tau3_bounds}")
     data = []
     for w in windows:
         soc, i, v, dt, curve = w[0], w[1], w[2], w[3], w[4]
@@ -468,9 +474,9 @@ def fit_cycle_params(windows, soc_knots=(0.1, 0.5, 0.9), x0: Optional[np.ndarray
     head_x0 = [0.028, 0.028, 0.033, 0.008, 12.0, 0.05, 800.0]
     lo, hi, x0d = list(head_lo), list(head_hi), list(head_x0)
     if n_rc == 3:
-        lo += [1e-5, 200.0]        # r3, tau3（tau3 下界 200 s，避开与 tau2 混叠）
-        hi += [0.40, 50000.0]
-        x0d += [0.02, 3000.0]
+        lo += [1e-5, t3_lo]        # r3, tau3（默认下界 200 s，避开与 tau2 混叠）
+        hi += [0.40, t3_hi]
+        x0d += [0.02, float(np.clip(3000.0, t3_lo + 1e-6, t3_hi - 1e-6))]
     if fit_r0_cur:
         lo += [0.0]
         hi += [0.02]               # Ω/A：4 A 时最多再加 0.32 V 的 i|i| 压降

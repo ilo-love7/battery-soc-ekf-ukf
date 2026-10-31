@@ -1,0 +1,159 @@
+{
+ "dataset": "panasonic",
+ "lines": {
+  "L1_qok_recovery": 0.3,
+  "L2_qok_suff": 0.3
+ },
+ "checks": {
+  "L1_recovery": false,
+  "L2_fast_sufficiency": true
+ },
+ "table": {
+  "none": {
+   "q_ok_rate": 1.0,
+   "q_ok_rate_x0.5": 1.0,
+   "q_ok_rate_x1.5": 1.0,
+   "q_rel_err_med": -0.0009178803734354313,
+   "rmse_soc_med": 0.009543717875587608,
+   "by_fold": {
+    "-20_hwfet": {
+     "q_ok_rate": 1.0,
+     "q_rel_err_med": -0.000723194564401064,
+     "rmse_soc_med": 0.007372151552500312
+    },
+    "-20_la92": {
+     "q_ok_rate": 1.0,
+     "q_rel_err_med": -0.0011626884374971724,
+     "rmse_soc_med": 0.0069787884185424955
+    },
+    "25_nn": {
+     "q_ok_rate": 1.0,
+     "q_rel_err_med": -0.000690385804170579,
+     "rmse_soc_med": 0.011695701290051822
+    },
+    "25_udds": {
+     "q_ok_rate": 1.0,
+     "q_rel_err_med": -0.001041175575548059,
+     "rmse_soc_med": 0.015172081530986394
+    }
+   }
+  },
+  "full": {
+   "q_ok_rate": 0.0,
+   "q_ok_rate_x0.5": 0.375,
+   "q_ok_rate_x1.5": 0.0,
+   "q_rel_err_med": 0.35505872902077795,
+   "rmse_soc_med": 0.15669424027452458,
+   "by_fold": {
+    "-20_hwfet": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.12670561023718085,
+     "rmse_soc_med": 0.04959752429543445
+    },
+    "-20_la92": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.4104166684078743,
+     "rmse_soc_med": 0.15669424027452458
+    },
+    "25_nn": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.46125396043868727,
+     "rmse_soc_med": 0.21372444768858573
+    },
+    "25_udds": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.2412912678137632,
+     "rmse_soc_med": 0.1262290985024555
+    }
+   }
+  },
+  "fast_only": {
+   "q_ok_rate": 0.25,
+   "q_ok_rate_x0.5": 0.5,
+   "q_ok_rate_x1.5": 0.125,
+   "q_rel_err_med": 0.03420546836848648,
+   "rmse_soc_med": 0.028718149908760073,
+   "by_fold": {
+    "-20_hwfet": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": -0.052011617641605,
+     "rmse_soc_med": 0.028660579279685454
+    },
+    "-20_la92": {
+     "q_ok_rate": 1.0,
+     "q_rel_err_med": 0.007225859160596926,
+     "rmse_soc_med": 0.01756027193348716
+    },
+    "25_nn": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.1343971589553965,
+     "rmse_soc_med": 0.05990352955392597
+    },
+    "25_udds": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.07534170036524279,
+     "rmse_soc_med": 0.03510129579704497
+    }
+   }
+  },
+  "minus_fast": {
+   "q_ok_rate": 0.25,
+   "q_ok_rate_x0.5": 0.25,
+   "q_ok_rate_x1.5": 0.125,
+   "q_rel_err_med": 0.18233642221413027,
+   "rmse_soc_med": 0.10833454364918717,
+   "by_fold": {
+    "-20_hwfet": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.0629859363434283,
+     "rmse_soc_med": 0.043968689597820396
+    },
+    "-20_la92": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.34654992971473564,
+     "rmse_soc_med": 0.16721487846368832
+    },
+    "25_nn": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.4748427153150846,
+     "rmse_soc_med": 0.20494434221679114
+    },
+    "25_udds": {
+     "q_ok_rate": 1.0,
+     "q_rel_err_med": -0.0048161962530514635,
+     "rmse_soc_med": 0.040960488505095954
+    }
+   }
+  },
+  "refit_full": {
+   "q_ok_rate": 0.0,
+   "q_ok_rate_x0.5": 0.375,
+   "q_ok_rate_x1.5": 0.0,
+   "q_rel_err_med": 0.36683782820070576,
+   "rmse_soc_med": 0.14869644538946858,
+   "by_fold": {
+    "-20_hwfet": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.28785916559335056,
+     "rmse_soc_med": 0.09674909309347793
+    },
+    "-20_la92": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.45365842462378514,
+     "rmse_soc_med": 0.18629020453376238
+    },
+    "25_nn": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.46666835661025907,
+     "rmse_soc_med": 0.21251612887531915
+    },
+    "25_udds": {
+     "q_ok_rate": 0.0,
+     "q_rel_err_med": 0.21480722031810617,
+     "rmse_soc_med": 0.10093072517033196
+    }
+   }
+  }
+ },
+ "verdict": "部分成立：快成分充分毒（fast_only 收敛 25%）但吸收后收敛率仅 minus_fast 25% / refit_full 0% <30%——white 其余成分仍在灌 q"
+}

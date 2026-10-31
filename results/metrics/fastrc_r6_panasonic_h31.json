@@ -1,0 +1,72 @@
+{
+ "dataset": "panasonic",
+ "lines": {
+  "L1_delta": 1.0,
+  "L1_signal": 0.6,
+  "L2_rec": 1.0,
+  "L2_fp": 0.5
+ },
+ "checks": {
+  "L1_delay_signature": false,
+  "L2_detection_power": true
+ },
+ "cold": {
+  "delta_hat_med": -0.2819923317174257,
+  "signal_rate": 1.0,
+  "n_signal": 5,
+  "sign_agree": 1.0,
+  "per_fold": [
+   {
+    "profile": "hwfet",
+    "delta_hat": -0.8985057930381676,
+    "signal": true,
+    "rel_depth": 1.1220748486571872
+   },
+   {
+    "profile": "la92",
+    "delta_hat": -0.23174089353820354,
+    "signal": true,
+    "rel_depth": 1.6706307530990887
+   },
+   {
+    "profile": "nn",
+    "delta_hat": -0.2819923317174257,
+    "signal": true,
+    "rel_depth": 1.6718575099200783
+   },
+   {
+    "profile": "udds",
+    "delta_hat": -0.5594783360704934,
+    "signal": true,
+    "rel_depth": 1.8690459983470784
+   },
+   {
+    "profile": "us06",
+    "delta_hat": -0.17205028376648251,
+    "signal": true,
+    "rel_depth": 1.618286892862223
+   }
+  ]
+ },
+ "align_controls": {
+  "aligned": {
+   "delta_hat": -0.0689671208159878,
+   "signal": true,
+   "peak_rmse": 0.00030045672592433925,
+   "rel_depth": 91.43122416964188
+  },
+  "delay2": {
+   "delta_hat": 1.9310430715076392,
+   "signal": true,
+   "peak_rmse": 0.0002961034696876732,
+   "rel_depth": 69.103309960628
+  },
+  "noise": {
+   "delta_hat": NaN,
+   "signal": false,
+   "peak_rmse": 0.0010121632787758006,
+   "rel_depth": 0.002054454194057034
+  }
+ },
+ "verdict": "被否：冷温 δ̂ 中位 -0.28 样本（有信号折 100%）未过 |δ̂|≥1.0 线——数据侧无固定延迟证据，white 出口在模型侧（合成对照 delay2 恢复 +1.93、aligned 误检 -0.07）"
+}

@@ -43,7 +43,7 @@ Four things this benchmark says that are worth knowing before you deploy a filte
   the cell by 30 K *while driving*, so a single-temperature table is off by tens of mV.
 - **Linear extrapolation outside SOC ∈ [0,1]** — required for UKF, harmless for EKF. See below.
 - **Leave-one-profile-out calibration** and **four stress scenarios** instead of one flattering number.
-- **99 unit tests, all on synthetic data** — they run without the datasets in CI (Python 3.10 + 3.12).
+- **138 unit tests, all on synthetic data** — they run without the datasets in CI (Python 3.10 + 3.12).
 
 ## Results
 
@@ -232,6 +232,24 @@ edges, amplified at cold temperature. The model-family exit is refined from
 "hysteresis/diffusion" to **fast-polarization branch + sampling alignment** (a
 single fast RC only cuts 21 %); the filter-side remedy for the heavy-tailed
 innovation that poisons q is robustification (Huber/clipping, to be tested).
+
+**Measured limits of the fast-branch exit (v1.9).** Both v1.8 exits turned into
+measured numbers; three hypotheses, three verdicts. **H29 "fast branch cuts
+white" rejected**: the model-level 3rc_fast refit (tau3 pinned to the fast end,
+LOO protocol) cuts **exactly 0 %** of innovation white (tau3 collapses to the
+0.5–1 s bound — a quasi-resistive degenerate basis — in 4/5 cold folds; the
+slow-end control gives 2 %); the structural LOO-τ cut is 0.1489, **just below**
+the 0.15 line, and β flips sign across folds (−68…+42 mV/A) — the fast component's
+amplitude is fold-specific structure, not a shared physical branch. **H30 "EKFQ
+linkage" partially**: the fast component is sufficient poison (25 % convergence
+when injected alone) but not the main mass (poisons q̂ only +3.4 % vs full
++35.5 %); removing it recovers only 25 %, the refit route 0 %. **H31 "v/i
+sampling alignment" rejected**: an i-shift RMSE sweep (with passing synthetic
+controls) puts δ̂ sub-sample everywhere (−0.24…−0.50, consistent with a 1 s
+averaging window on the current channel). Updated attribution: **the bulk of
+white is not a missing fast RC** (the fold-oracle ceiling is 20 %) — fold-specific
+non-RC structure / BV-transport transients take over; **robust EKFQ is now the
+primary exit** (to be tested).
 
 ## Install
 
@@ -435,7 +453,14 @@ python scripts/30_white_round5.py --stage h27  --dataset panasonic   # seconds
 python scripts/30_white_round5.py --stage h28  --dataset panasonic   # seconds
 python scripts/31_round9_figures.py                       # three round-9 figures
 
-python -m pytest tests -q                        # 125 tests, no dataset needed
+# measured limits of the fast-branch exit (v1.9) — probe / H29 / H30 / H31
+python scripts/32_fastrc_round6.py --stage probe --dataset panasonic # ~2 min
+python scripts/32_fastrc_round6.py --stage h29  --dataset panasonic  # seconds
+python scripts/32_fastrc_round6.py --stage h30  --dataset panasonic  # ~2 min
+python scripts/32_fastrc_round6.py --stage h31  --dataset panasonic  # seconds
+python scripts/33_round10_figures.py                      # three round-10 figures
+
+python -m pytest tests -q                        # 138 tests, no dataset needed
 ```
 
 ## Limitations

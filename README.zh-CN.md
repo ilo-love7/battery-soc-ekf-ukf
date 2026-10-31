@@ -40,7 +40,7 @@
   30 K 的温漂用单温度表会差几十毫伏。
 - **SOC ∈ [0,1] 之外按端点斜率线性外推**：UKF 必须这样，EKF 无所谓。
 - **留一工况标定** + **四个压力场景**，而不是一个好看的单一数字。
-- **99 项单元测试全部用合成数据**，CI 里不需要数据集（Python 3.10 + 3.12）。
+- **138 项单元测试全部用合成数据**，CI 里不需要数据集（Python 3.10 + 3.12）。
 
 ## 结果
 
@@ -187,6 +187,17 @@ excess kurtosis +7.7~+30.3 重尾）。物理身份：**驱动电流是 ~0.5 A/s
 建立的快极化缺失（τ≈5–10 s），冷温放大。模型族出口从「滞回/扩散态」细化为
 「**快极化支路 + 采样对齐**」（单快 RC 只削 21%）；滤波器侧对症重尾灌 q 的是
 innovation 鲁棒化（Huber/限幅，待测）。
+
+**快支路出口的实测边界（v1.9）。** 把 v1.8 的出口做成实测，三假设三判决。
+**H29「快支路压 white」被否**：模型级 3rc_fast（tau3 钉快端）LOO 重拟合削减
+**严格 0%**（tau3 冷温塌到 0.5–1 s 下界退化成拟 r0；慢端对照也只有 2%），
+结构级 LOO-τ 削减 0.1489 **贴线未过** 0.15 线，且 β 符号折间翻转（−68~+42 mV/A）
+——快分量幅度是折特异结构、不是共享物理支路。**H30「EKFQ 联动」部分成立**：
+快成分充分毒（只注收敛 25%）但不是主量（只灌 q̂ +3.4%，full +35.5%）；剥掉后
+收敛率仅回 25%、refit 路线 0%。**H31「v/i 采样对齐」被否**：i 平移 RMSE 扫描
+（合成对照过检出力）δ̂ 全部亚样本（−0.24~−0.50，与 i 通道 1 s 平均窗方向一致）。
+定性修订：**white 的主体不是缺失快 RC**（折内 oracle 也只有 20%）——机制归属
+转向折特异非 RC 结构/BV 传质瞬态；**鲁棒 EKFQ 升为首选出口**（待测）。
 
 ## 安装
 
@@ -384,7 +395,14 @@ python scripts/30_white_round5.py --stage h27  --dataset panasonic   # 秒级
 python scripts/30_white_round5.py --stage h28  --dataset panasonic   # 秒级
 python scripts/31_round9_figures.py                       # 三张第九轮图
 
-python -m pytest tests -q                        # 125 项，不需要数据集
+# 快支路出口的实测边界（v1.9）：probe / H29 / H30 / H31
+python scripts/32_fastrc_round6.py --stage probe --dataset panasonic # 约 2 min
+python scripts/32_fastrc_round6.py --stage h29  --dataset panasonic  # 秒级
+python scripts/32_fastrc_round6.py --stage h30  --dataset panasonic  # 约 2 min
+python scripts/32_fastrc_round6.py --stage h31  --dataset panasonic  # 秒级
+python scripts/33_round10_figures.py                      # 三张第十轮图
+
+python -m pytest tests -q                        # 138 项，不需要数据集
 ```
 
 ## 局限
