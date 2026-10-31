@@ -40,7 +40,7 @@
   30 K 的温漂用单温度表会差几十毫伏。
 - **SOC ∈ [0,1] 之外按端点斜率线性外推**：UKF 必须这样，EKF 无所谓。
 - **留一工况标定** + **四个压力场景**，而不是一个好看的单一数字。
-- **96 项单元测试全部用合成数据**，CI 里不需要数据集（Python 3.10 + 3.12）。
+- **99 项单元测试全部用合成数据**，CI 里不需要数据集（Python 3.10 + 3.12）。
 
 ## 结果
 
@@ -137,6 +137,18 @@ LFP 的真凶是 **OCV 曲线的 SOC 形状误差** —— 训练折残差→ΔO
 EKFQ 1.63 pp **反超** EKF 2.44 pp（q 收敛率 46%）；NCA 负结果原封不动（7.7–10.6 vs
 2.3–4.5 pp）。v1.2 的「EKFQ 不行」应改读为「**残差 > 20 mV 时 EKFQ 不行**」——
 条件性工具（低残差 + 高估侧），**外部锚点仍是默认路线**。
+
+**残差二压与热失配判决（v1.5）。** 两条深化路线走到头，机制再次反转：① **BV 饱和是真的**
+—— HPPC 组内起点电阻随倍率单调收缩（−20 °C 10 A 时表观电阻只剩 59%），但用饱和形状
+做**静态**修正不转移（LOO 残差 42.1 → 45.0 mV，更差）；跨温度全局 Δ(soc) 也被否
+（21.8 vs 同温度 18.1 mV）。② 静态修正不转移的真凶：us06 −20 的电芯实测温度摆
+**20 K**，残差 ~ 2.54 mV/(K·A)·dT·i（R²=0.66）—— **冷温大功率残差的主体是自热
+导致的参数温度失配**，不是「分布外外推」本身。逐样本 R(T_meas) 修正把 us06 −20
+从 181 压到 **74.6 mV**、真实复验 **EKF 中位 3.21 → 2.39 pp（−26%）**；但全折
+残差中位 42 纹丝不动（冷温小电流的 OCV 基准地板是另一台机器）。边界按残差结构
+分层后阈值修订：**慢/偶型 ≤20–30 mV，奇型（∝ i，热失配的签名）≤10–15 mV** ——
+奇型残差与电流同号共长、灌进 q 的速率是慢漂移的 4 倍，NCA 的 EKFQ 死亡由此
+从结构侧再获解释。LFP 无逐样本温度数据，17.6 mV 与条件性结论维持。
 
 ## 安装
 
@@ -303,7 +315,17 @@ python scripts/20_model_upgrade.py --stage docv           # ΔOCV 判决实验�
 python scripts/21_ekfq_boundary.py                        # 合成边界 + 真实复验，约 8 min
 python scripts/22_round5_figures.py                       # 四张第五轮图
 
-python -m pytest tests -q                        # 96 项，不需要数据集
+# 残差二压（v1.5）：HPPC 饱和 / Δ(i) 判决 / 全局Δ(soc) / 热修正 / 边界细化
+python scripts/23_residual_round2.py --stage hppc         # 组内起点电阻饱和，约 1 min
+python scripts/23_residual_round2.py --stage di --dataset panasonic   # Δ(i) 判决，约 1 min
+python scripts/23_residual_round2.py --stage di --dataset calce
+python scripts/23_residual_round2.py --stage dst --dataset calce      # 全局Δ(soc)，约 1 min
+python scripts/23_residual_round2.py --stage therm --dataset panasonic  # 热修正判决，约 1 min
+python scripts/24_ekfq_boundary2.py --stage a             # 残差结构边界，约 12 min
+python scripts/24_ekfq_boundary2.py --stage b --dataset panasonic     # 热修正复验，约 6 min
+python scripts/25_round6_figures.py                       # 四张第六轮图
+
+python -m pytest tests -q                        # 99 项，不需要数据集
 ```
 
 ## 局限
@@ -324,9 +346,12 @@ python -m pytest tests -q                        # 96 项，不需要数据集
   就是错的（幅度 185 mV，静置看不见）；`ShapeCorrected` 能修（37.4 → 17.6 mV）但还不是
   流水线默认步骤。NCA 的残差是冷温大功率分布外外推（US06 −20 °C 到 242 mV）——
   平滑模型族外推不了，出路是大倍率 HPPC 脉冲拟合 R0(i,T)，本轮未做。
-- **加 RC 阶数降不动残差。** `τ2` 在 NCA 的 24 折里 17 折、LFP 的 24 折里**全部**顶到 6000 s 上界，
-  但第三条支路与电流内阻项只换 LOO 残差 0–1.9%（参数顶界）。顶界是模型族错的症状，
-  不是阶数不够的证据。
+- **加 RC 阶数降不动残差，静态电流形状修正也不行。** `τ2` 在 NCA 的 24 折里 17 折、LFP 的 24 折里**全部**顶到 6000 s 上界，
+  但第三条支路与电流内阻项只换 LOO 残差 0–1.9%（参数顶界是模型族错的症状）；
+  v1.5 进一步否掉「Δ(i)/BV 形状静态修正」（42.1 → 45.0 mV，更差）——大功率残差
+  取决于**温度历史**（自热），不是瞬时电流的函数。逐样本 R(T_meas) 修正是有效
+  出路（us06 尾折 −58%、EKF 中位 −26%），但冷温小电流地板（0–1 A 也 42 mV）是
+  OCV 静置/动态基准不自洽，平滑 ECM 族修不动。
 - **电流偏置是给定的，不是估计的。** 滤波器只能靠电压反馈抵消它，不能估计它
   （作为第 5 个状态与 SOC 在平台区共线，不可辨识）。
 - **收敛数字略偏乐观**：保留了 300 s 静置窗口；要「第一拍就得准」的版本用 `--keep-rest 0`。

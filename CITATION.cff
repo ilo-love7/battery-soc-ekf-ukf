@@ -29,8 +29,17 @@ abstract: >-
   distribution cold high-power extrapolation on NCA (stays at 41.7 mV). A synthetic
   sweep sets the online-capacity-identification (EKFQ) feasibility threshold at slow
   residual <= 20 mV; below it EKFQ starting from a 5 % capacity over-estimate beats
-  fixed-Q EKF (1.63 vs 2.44 pp), above it the v1.2 negative result stands.
-version: 1.4.0
+  fixed-Q EKF (1.63 vs 2.44 pp), above it the v1.2 negative result stands. A sixth
+  round separates two mechanisms behind the NCA residual: BV-type resistance
+  saturation is real (HPPC onset resistance shrinks to 59 % at 10 A, -20 deg C) but
+  static current-shaped corrections do not transfer; the dominant term is self-heating
+  parameter mismatch (20 K cell swing, residual ~ 2.54 mV/(K*A) * dT * i, R2 0.66).
+  Per-sample R(T_meas) correction cuts the us06 -20 deg C fold 181 -> 74.6 mV and the
+  EKF median 3.21 -> 2.39 pp, while the cold low-current residual floor (42 mV) remains.
+  Resolving the EKFQ boundary by residual structure revises the threshold to
+  slow/even <= 20-30 mV and odd (current-correlated) <= 10-15 mV; an odd residual
+  poisons the capacity state four times faster than slow drift.
+version: 1.5.0
 date-released: 2026-10-31
 license: MIT
 repository-code: "https://github.com/ilo-love7/battery-soc-ekf-ukf"

@@ -1,0 +1,14 @@
+{
+ "dataset": "calce",
+ "n_folds": 24,
+ "best_variant": "3rc_cur",
+ "base_median_mv": 37.44560600828895,
+ "ocvt_median_mv": 37.44560600828895,
+ "rt_median_mv": 37.44560600828895,
+ "full_median_mv": 37.44560600828895,
+ "scaled_median_mv": 37.44560600828895,
+ "best_method": "ocvt_rmse_mv",
+ "best_median_mv": 37.44560600828895,
+ "median_c": 0.0,
+ "median_swing_k": 0.0
+}

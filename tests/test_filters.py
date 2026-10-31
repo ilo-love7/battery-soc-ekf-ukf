@@ -402,3 +402,71 @@ def test_r0_cur_enters_observation():
     v_zero = est._h(x, i=0.0, temp_c=25.0)
     assert v_dis == pytest.approx(v_zero + 0.03 * (-4.0) + 0.01 * (-4.0) * 4.0, abs=1e-9)
     assert v_chg == pytest.approx(v_zero + 0.03 * 4.0 + 0.01 * 4.0 * 4.0, abs=1e-9)
+
+
+# ---- 逐样本锚点：鸭子类型契约（脚本 24 ThermalAnchor 依赖）----
+
+class _PerStepAnchor:
+    """最小鸭子类型：q_at(t) / r0_at(t, default) 返回逐步数组（插值）。"""
+
+    def __init__(self, t_knots, r0_knots, q_ah):
+        self.t_knots = np.asarray(t_knots, float)
+        self.r0_knots = np.asarray(r0_knots, float)
+        self.q_ah = float(q_ah)
+
+    def q_at(self, t):
+        return np.full_like(np.asarray(t, float), self.q_ah)
+
+    def r0_at(self, t, default=None):
+        return np.interp(np.asarray(t, float), self.t_knots, self.r0_knots)
+
+
+def test_duck_typed_per_sample_anchor_contract():
+    """run(anchor=) 只要求 q_at/r0_at 两个方法；逐样本插值锚点必须可用。"""
+    prof = _synth(n=600, seed=3)
+    kw = dict(ocv=_curve(), params=TRUE, capacity_ah=CAP,
+              cfg=FilterConfig(soc0=0.9, sigma_soc0=0.05))
+    t = prof.t_s
+    a1 = _PerStepAnchor([t[0], t[-1]], [TRUE.r0, TRUE.r0], CAP)
+    a2 = _PerStepAnchor([t[0], t[-1]], [2.0 * TRUE.r0, 2.0 * TRUE.r0], CAP)
+    out1 = EKF(**kw).run(prof, anchor=a1)
+    out2 = EKF(**kw).run(prof, anchor=a2)
+    # r0 翻倍必须改变观测预测与 SOC 轨迹
+    assert np.max(np.abs(out2["volt_pred"] - out1["volt_pred"])) > 1e-4
+    assert np.max(np.abs(out2["soc_hat"] - out1["soc_hat"])) > 1e-6
+
+
+def test_per_sample_r0_anchor_flows_into_volt_pred():
+    """逐步 r0(t) 必须逐点进入 volt_pred：v = ocv + u + r0(t)·i + b。"""
+    prof = _synth(n=400, seed=5)
+    t = prof.t_s
+    r0_of_t = TRUE.r0 * (1.0 + 0.5 * (t - t[0]) / max(t[-1] - t[0], 1.0))  # 线性升温型
+    anchor = _PerStepAnchor(t, r0_of_t, CAP)
+    est = EKF(ocv=_curve(), params=TRUE, capacity_ah=CAP,
+              cfg=FilterConfig(soc0=0.9, sigma_soc0=0.05))
+    out = est.run(prof, anchor=anchor)
+    # 无偏置状态时：volt_pred − (OCV+u 项) 应含 r0(t)·i；用翻倍锚点差分验证逐点性
+    est2 = EKF(ocv=_curve(), params=TRUE, capacity_ah=CAP,
+               cfg=FilterConfig(soc0=0.9, sigma_soc0=0.05))
+    out2 = est2.run(prof, anchor=_PerStepAnchor(t, 2.0 * r0_of_t, CAP))
+    dv = out2["volt_pred"] - out["volt_pred"]
+    i = prof.current_a
+    # 状态不同导致 u 略不同，但主项是 Δr0·i = r0(t)·i：相关性必须强
+    denom = np.sqrt(np.mean((r0_of_t * i) ** 2))
+    assert np.sqrt(np.mean(dv ** 2)) > 0.3 * denom
+    assert np.corrcoef(dv, r0_of_t * i)[0, 1] > 0.9
+
+
+def test_ekfq_ignores_duck_anchor_q_but_uses_r0():
+    """EKFQ 不接受锚点容量覆盖（q 是状态），但逐步 r0 必须生效。"""
+    prof = _synth(n=600, seed=7)
+    t = prof.t_s
+    kw = dict(ocv=_curve(), params=TRUE, capacity_ah=CAP,
+              cfg=FilterConfig(soc0=0.9, sigma_soc0=0.05))
+    base = EKFQ(**kw).run(prof)
+    wrong_q = EKFQ(**kw).run(prof, anchor=_PerStepAnchor([t[0], t[-1]],
+                                                         [TRUE.r0, TRUE.r0], 1.7 * CAP))
+    assert np.allclose(base["soc_hat"], wrong_q["soc_hat"], atol=1e-12)
+    shifted = EKFQ(**kw).run(prof, anchor=_PerStepAnchor([t[0], t[-1]],
+                                                         [2.0 * TRUE.r0, 2.0 * TRUE.r0], CAP))
+    assert np.max(np.abs(shifted["soc_hat"] - base["soc_hat"])) > 1e-6

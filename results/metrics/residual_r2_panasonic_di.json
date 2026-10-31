@@ -1,0 +1,13 @@
+{
+ "dataset": "panasonic",
+ "n_folds": 24,
+ "best_variant": "2rc",
+ "base_median_mv": 42.08092790644411,
+ "same_median_mv": 45.63920713070202,
+ "all_median_mv": 45.01103666282599,
+ "hppc_median_mv": 45.18727472349639,
+ "best_method": "all_rmse_mv",
+ "best_median_mv": 45.01103666282599,
+ "median_bin_hit_same": 1.0,
+ "median_bin_hit_all": 1.0
+}

@@ -1,0 +1,10 @@
+{
+ "dataset": "calce",
+ "n_folds": 24,
+ "best_variant": "3rc_cur",
+ "base_median_mv": 37.44560600828895,
+ "global_median_mv": 21.80069070755988,
+ "global_tbias_median_mv": 21.694622444574385,
+ "same_median_mv": 18.109728756345323,
+ "global_wins_vs_same": 2
+}

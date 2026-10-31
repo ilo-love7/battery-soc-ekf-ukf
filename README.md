@@ -43,7 +43,7 @@ Four things this benchmark says that are worth knowing before you deploy a filte
   the cell by 30 K *while driving*, so a single-temperature table is off by tens of mV.
 - **Linear extrapolation outside SOC ∈ [0,1]** — required for UKF, harmless for EKF. See below.
 - **Leave-one-profile-out calibration** and **four stress scenarios** instead of one flattering number.
-- **96 unit tests, all on synthetic data** — they run without the datasets in CI (Python 3.10 + 3.12).
+- **99 unit tests, all on synthetic data** — they run without the datasets in CI (Python 3.10 + 3.12).
 
 ## Results
 
@@ -156,6 +156,24 @@ while NCA's negative result stands unchanged (7.7–10.6 vs 2.3–4.5 pp). The v
 "EKFQ does not work" now reads "**EKFQ does not work when the residual exceeds 20 mV**" —
 a conditional tool (low residual *and* the over-estimate side); the external SOH anchor
 remains the default route.
+
+**Residual round 2 & the thermal verdict (v1.5).** Two deepening routes were taken to
+their ends and the mechanism turned over again. ① **BV saturation is real** — HPPC
+within-group onset resistance shrinks monotonically with rate (at −20 °C only 59 % of
+the low-rate value at 10 A), but a *static* saturation-shaped correction does not
+transfer (LOO residual 42.1 → 45.0 mV, worse); a cross-temperature global Δ(soc) is
+also rejected (21.8 vs 18.1 mV for the per-temperature version). ② The reason static
+corrections fail: on us06 at −20 °C the cell temperature swings **20 K** and the
+residual tracks 2.54 mV/(K·A)·dT·i (R² = 0.66) — the cold high-power residual is
+primarily **self-heating parameter mismatch**, not out-of-distribution extrapolation
+per se. Per-sample R(T_meas) correction crushes the us06 tail (181 → **74.6 mV**) and
+lifts the real-data **EKF median 3.21 → 2.39 pp (−26 %)**; but the all-fold residual
+median stays at 42 mV (the cold low-current OCV-baseline floor is a different machine).
+Resolving the EKFQ boundary by residual *structure* revises the threshold: **slow/even
+≤ 20–30 mV, odd (∝ i, the thermal signature) ≤ 10–15 mV** — an odd residual grows with
+current and poisons q four times faster than slow drift, which structurally re-explains
+NCA's EKFQ failure. LFP has no per-sample temperature data; its 17.6 mV and conditional
+EKFQ revival stand as in v1.4.
 
 ## Install
 
@@ -329,7 +347,16 @@ python scripts/20_model_upgrade.py --stage docv           # ΔOCV verdict, ~5 mi
 python scripts/21_ekfq_boundary.py                        # synthetic boundary + real re-verify, ~8 min
 python scripts/22_round5_figures.py                       # four round-5 figures
 
-python -m pytest tests -q                        # 96 tests, no dataset needed
+# residual round 2 (v1.5) — HPPC saturation / Δ(i) verdict / global Δ(soc) / thermal fix
+python scripts/23_residual_round2.py --stage hppc         # ~1 min
+python scripts/23_residual_round2.py --stage di --dataset panasonic   # ~1 min
+python scripts/23_residual_round2.py --stage dst --dataset calce      # ~1 min
+python scripts/23_residual_round2.py --stage therm --dataset panasonic  # ~1 min
+python scripts/24_ekfq_boundary2.py --stage a             # residual-structure boundary, ~12 min
+python scripts/24_ekfq_boundary2.py --stage b --dataset panasonic     # thermal re-verify, ~6 min
+python scripts/25_round6_figures.py                       # four round-6 figures
+
+python -m pytest tests -q                        # 99 tests, no dataset needed
 ```
 
 ## Limitations
@@ -355,10 +382,14 @@ python -m pytest tests -q                        # 96 tests, no dataset needed
   pipeline step. NCA's residual is out-of-distribution cold high-power (US06 at −20 °C,
   up to 242 mV) — a smooth model family cannot extrapolate there; R0(i, T) from high-rate
   HPPC pulses is the stated route, not done.
-- **Adding RC branches does not lower the residual.** `τ2` hits the 6000 s bound in 17 of 24 NCA
-  folds (24 of 24 on LFP), but a 3rd branch and a current-dependent R0 change LOO residual by
-  only 0–1.9 % (parameters pinned at bounds). The bound is a symptom of the wrong model family,
-  not of too few branches.
+- **Adding RC branches does not lower the residual — and neither does a static current
+  shape.** `τ2` hits the 6000 s bound in 17 of 24 NCA folds (24 of 24 on LFP), but a 3rd
+  branch and a current-dependent R0 change LOO residual by only 0–1.9 % (parameters pinned
+  at bounds = wrong model family). v1.5 further rejects static Δ(i)/BV-shape corrections
+  (42.1 → 45.0 mV, worse): the high-power residual depends on **temperature history**
+  (self-heating), not instantaneous current. Per-sample R(T_meas) is the working fix
+  (us06 tail −58 %, EKF median −26 %), but the cold low-current floor (42 mV even at
+  0–1 A) is the OCV rest/dynamics baseline inconsistency, untouched by any smooth ECM.
 - **Current bias is given, not estimated.** The filter can only cancel it via voltage feedback
   (a 5th bias state is collinear with SOC on the plateau, hence unobservable).
 - **Convergence numbers are slightly optimistic**: a 300 s rest window is kept. For a

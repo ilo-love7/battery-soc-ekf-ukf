@@ -1,0 +1,14 @@
+{
+ "dataset": "panasonic",
+ "n_rows": 288,
+ "upgraded_ekf_rmse": 0.032102952323083425,
+ "upgraded_ekfq_rmse": 0.08853093375429492,
+ "upgraded_q_ok_rate": 0.041666666666666664,
+ "upgraded_thermal_ekf_rmse": 0.02385411184802204,
+ "upgraded_thermal_ekfq_rmse": 0.08921648643053873,
+ "upgraded_thermal_q_ok_rate": 0.0625,
+ "us06_upgraded_ekf_rmse": 0.03734212745188383,
+ "us06_upgraded_ekfq_rmse": 0.10820722865720667,
+ "us06_upgraded_thermal_ekf_rmse": 0.045238975781699324,
+ "us06_upgraded_thermal_ekfq_rmse": 0.10419799718831152
+}

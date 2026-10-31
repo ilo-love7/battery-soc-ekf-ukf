@@ -1,0 +1,17 @@
+{
+ "dataset": "panasonic",
+ "n_folds": 24,
+ "best_variant": "2rc",
+ "base_median_mv": 42.08092790644411,
+ "ocvt_median_mv": 42.82949076172909,
+ "rt_median_mv": 44.644090737425024,
+ "full_median_mv": 43.631917357517295,
+ "rtnorm_median_mv": 42.49625455940405,
+ "scaled_median_mv": 43.48831070747323,
+ "best_method": "rtnorm_rmse_mv",
+ "best_median_mv": 42.49625455940405,
+ "us06_base_mv": 75.03743472304124,
+ "us06_best_mv": 63.84649270323373,
+ "median_c": 0.664947859515112,
+ "median_swing_k": 6.654499166666666
+}
