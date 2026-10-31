@@ -268,3 +268,54 @@ class OCV2D:
             m = keys == k
             out[m] = self(s[m], float(k))
         return out
+
+
+class ShapeCorrected:
+    """OCV 形状修正包装：``OCV'(soc,T) = OCV(soc,T) + Δ(soc)``。
+
+    Δ 是分段线性的 SOC 相关加性修正（结点上以 mV 给出）。残差摸底（脚本 19/20）
+    表明 LFP 的 LOO 开环残差主体是 OCV 表的**形状误差**（老化后的电芯在动态工况
+    下与 C/20 静置曲线差 100–400 mV 的 SOC 相关形状），常值 ``dv`` 与极化支路
+    都吃不掉它；把训练折残差按 SOC 分箱得到的 Δ 回灌到留出折，残差 37.4 →
+    17.6 mV。该类就是那个 Δ 的滤波器侧载体。
+
+    ``docv`` 同步修正斜率（Δ 的导数叠加到原斜率上），否则 EKF 的 ``H`` 会错。
+    """
+
+    def __init__(self, base, soc_knots, docv_mv):
+        self.base = base
+        self.knots = np.asarray(soc_knots, dtype=float).reshape(-1)
+        self.delta = np.asarray(docv_mv, dtype=float).reshape(-1) * 1e-3  # → V
+        if self.knots.size != self.delta.size or self.knots.size < 2:
+            raise ValueError("soc_knots 与 docv_mv 必须同长且 ≥2")
+
+    def delta_at(self, soc) -> np.ndarray:
+        return np.interp(np.asarray(soc, dtype=float), self.knots, self.delta)
+
+    def __call__(self, soc, temp_c=None):
+        s = np.asarray(soc, dtype=float)
+        if temp_c is None:
+            return self.base(s) + self.delta_at(s)
+        try:
+            return self.base(s, temp_c) + self.delta_at(s)
+        except TypeError:
+            return self.base(s) + self.delta_at(s)
+
+    def docv(self, soc, temp_c=None, h: float = 1e-4) -> np.ndarray:
+        s = np.asarray(soc, dtype=float)
+        if temp_c is None:
+            d = self.base.docv(s, h=h)
+        else:
+            try:
+                d = self.base.docv(s, temp_c, h=h)
+            except TypeError:
+                d = self.base.docv(s, h=h)
+        # Δ 的导数：线性插值的局部斜率（中心差分足够）
+        lo = np.clip(s - h, 0.0, 1.0)
+        hi = np.clip(s + h, 0.0, 1.0)
+        dd = (self.delta_at(hi) - self.delta_at(lo)) / np.maximum(hi - lo, 1e-12)
+        return d + dd
+
+    def batch(self, soc: np.ndarray, temp_c: np.ndarray) -> np.ndarray:
+        s = np.asarray(soc, dtype=float)
+        return self.base.batch(s, np.asarray(temp_c, dtype=float)) + self.delta_at(s)

@@ -14,8 +14,10 @@
     anchor = SoHSchedule(t_upd=[0, 600, 1200], q_ah=[2.45, 2.47, 2.44])
     out = est.run(profile, anchor=anchor)
 
-状态 ``x = [soc, u1, u2, b]``：前三个是二阶 RC 的 SOC 与两条极化支路，
-``b`` 是**电压偏置状态**（模型 OCV 与实测之间的系统差）。
+状态 ``x = [soc, u1, u2(, u3), b]``：SOC 与各条 RC 极化支路，``b`` 是**电压偏置
+状态**（模型 OCV 与实测之间的系统差）。``params.r3 > 0`` 时自动多一条慢极化
+状态 ``u3``（三阶 RC），状态维数随支路数变化 —— 残差摸底（脚本 19）显示 LOO
+残差的 58–85% 落在 >60 s 的慢频带，第三条慢支路就是为它准备的。
 
 为什么要有 ``b``
 ----------------
@@ -152,6 +154,14 @@ class _BaseFilter:
         self.p = params
         self.q_cap = float(capacity_ah)
         self.cfg = cfg or FilterConfig()
+        # 状态布局：[soc, u1..unr, b]，EKFQ 再在末尾追加 q
+        self.nr = int(getattr(params, "n_rc", 2))
+        self.ndim = self.nr + 2
+
+    @property
+    def _ib(self) -> int:
+        """偏置状态下标。"""
+        return self.nr + 1
 
     # ---- 公共 ----
     def _ab(self, dt: float):
@@ -159,43 +169,51 @@ class _BaseFilter:
             self._ab_cache = (dt, step_matrices(self.p, dt))
         return self._ab_cache[1]
 
+    def _pairs(self, dt: float):
+        """``[(a1, b1), (a2, b2)(, (a3, b3))]``。"""
+        ab = self._ab(dt)
+        return [(ab[2 * j], ab[2 * j + 1]) for j in range(self.nr)]
+
     def _predict(self, x: np.ndarray, i: float, dt: float, clip: bool = True,
                  q: Optional[float] = None) -> np.ndarray:
         c = self.cfg
-        a1, b1, a2, b2 = self._ab(dt)
         q_cap = self.q_cap if q is None else max(float(q), 1e-6)
         soc = x[0] + c.eta * i * dt / (3600.0 * q_cap)
-        u1 = a1 * x[1] + b1 * i
-        u2 = a2 * x[2] + b2 * i
-        bias = x[3]
+        u = [a * x[1 + j] + b * i for j, (a, b) in enumerate(self._pairs(dt))]
+        bias = x[self._ib]
         if not clip:      # sigma 点传播保持线性，裁剪会破坏对称性
-            return np.array([soc, u1, u2, bias])
+            return np.array([soc, *u, bias])
         return np.array([np.clip(soc, *c.soc_clip),
-                         float(np.clip(u1, -c.u_clip, c.u_clip)),
-                         float(np.clip(u2, -c.u_clip, c.u_clip)),
+                         *[float(np.clip(uj, -c.u_clip, c.u_clip)) for uj in u],
                          float(np.clip(bias, -c.b_clip, c.b_clip))])
 
     def _h(self, x: np.ndarray, i: float, temp_c: float = 25.0,
            r0: Optional[float] = None) -> float:
         r0_use = self.p.r0 if r0 is None else float(r0)
-        return (_ocv_scalar(self.ocv, float(x[0]), temp_c) + x[1] + x[2]
-                + r0_use * i + getattr(self.p, "dv", 0.0) + x[3])
+        u_sum = float(sum(x[1 + j] for j in range(self.nr)))
+        return (_ocv_scalar(self.ocv, float(x[0]), temp_c) + u_sum
+                + r0_use * i + getattr(self.p, "r0_cur", 0.0) * i * abs(i)
+                + getattr(self.p, "dv", 0.0) + x[self._ib])
 
     def _H(self, x: np.ndarray, temp_c: float) -> np.ndarray:
-        return np.array([[_docv_scalar(self.ocv, float(x[0]), temp_c), 1.0, 1.0, 1.0]])
+        return np.array([[_docv_scalar(self.ocv, float(x[0]), temp_c)]
+                         + [1.0] * self.nr + [1.0]])
 
     def _init_state(self, soc_init: Optional[float], i0: float = 0.0) -> np.ndarray:
         """初始极化取当前电流下的稳态值 R_j·i0，偏置置 0。"""
         s0 = self.cfg.soc0 if soc_init is None else float(soc_init)
-        return np.array([s0, self.p.r1 * i0, self.p.r2 * i0, 0.0])
+        u0 = [self.p.r1 * i0, self.p.r2 * i0]
+        if self.nr > 2:
+            u0.append(self.p.r3 * i0)
+        return np.array([s0, *u0, 0.0])
 
     def _init_cov(self) -> np.ndarray:
         c = self.cfg
-        return np.diag([c.sigma_soc0 ** 2, c.sigma_u0 ** 2, c.sigma_u0 ** 2, c.sigma_b0 ** 2])
+        return np.diag([c.sigma_soc0 ** 2] + [c.sigma_u0 ** 2] * self.nr + [c.sigma_b0 ** 2])
 
     def _Q(self) -> np.ndarray:
         c = self.cfg
-        return np.diag([c.q_soc, c.q_u, c.q_u, c.q_b])
+        return np.diag([c.q_soc] + [c.q_u] * self.nr + [c.q_b])
 
     def run(self, profile: DrivingProfile, voltage_noise: float = 0.0,
             seed: int = 0, soc_init: Optional[float] = None,
@@ -263,9 +281,9 @@ class EKF(_BaseFilter):
     name = "ekf"
 
     def _F(self, dt: float) -> np.ndarray:
-        a1, _, a2, _ = self._ab(dt)
-        F = np.eye(NDIM)
-        F[1, 1], F[2, 2] = a1, a2
+        F = np.eye(self.ndim)
+        for j, (a, _) in enumerate(self._pairs(dt)):
+            F[1 + j, 1 + j] = a
         return F
 
     def _run(self, prof, dt, v_meas, soc_init, q_arr=None, r0_arr=None):
@@ -279,6 +297,7 @@ class EKF(_BaseFilter):
         F = self._F(dt)
         Q = self._Q()
         R = c.sigma_v ** 2
+        ib = self._ib
         soc = np.empty(n); inn = np.zeros(n); nis = np.zeros(n)
         gain = np.zeros(n); sig = np.empty(n); vp = np.empty(n); bh = np.zeros(n)
         for k in range(n):
@@ -292,13 +311,13 @@ class EKF(_BaseFilter):
             e = float(v_meas[k]) - y_hat
             x = x + K * e
             x[0] = float(np.clip(x[0], *c.soc_clip))
-            x[3] = float(np.clip(x[3], -c.b_clip, c.b_clip))
-            IKH = np.eye(NDIM) - np.outer(K, H)
+            x[ib] = float(np.clip(x[ib], -c.b_clip, c.b_clip))
+            IKH = np.eye(self.ndim) - np.outer(K, H)
             P = IKH @ P @ IKH.T + R * np.outer(K, K)      # Joseph 形式
             P = 0.5 * (P + P.T)
             soc[k] = x[0]; inn[k] = e; nis[k] = e * e / S
             gain[k] = K[0]; sig[k] = float(np.sqrt(max(P[0, 0], 0.0)))
-            vp[k] = y_hat; bh[k] = x[3]
+            vp[k] = y_hat; bh[k] = x[ib]
         return self._pack(soc, inn, nis, gain, sig, vp, bh)
 
 
@@ -330,15 +349,16 @@ class UKF(_BaseFilter):
         return 0.5 * (P + P.T)
 
     def _sigma(self, mu: np.ndarray, cov: np.ndarray, scl: float) -> np.ndarray:
+        nd = self.ndim
         try:
             L = np.linalg.cholesky(scl * cov)
         except np.linalg.LinAlgError:
-            L = np.linalg.cholesky(scl * (cov + np.eye(NDIM) * 1e-12))
-        X = np.empty((2 * NDIM + 1, NDIM))
+            L = np.linalg.cholesky(scl * (cov + np.eye(nd) * 1e-12))
+        X = np.empty((2 * nd + 1, nd))
         X[0] = mu
-        for j in range(NDIM):
+        for j in range(nd):
             X[1 + j] = mu + L[:, j]
-            X[1 + NDIM + j] = mu - L[:, j]
+            X[1 + nd + j] = mu - L[:, j]
         return X
 
     def _run(self, prof, dt, v_meas, soc_init, q_arr=None, r0_arr=None):
@@ -351,8 +371,9 @@ class UKF(_BaseFilter):
         P = self._init_cov()
         Q = self._Q()
         R = c.sigma_v ** 2
-        lam, wm, wc = self._weights(NDIM)
-        scl = NDIM + lam
+        lam, wm, wc = self._weights(self.ndim)
+        scl = self.ndim + lam
+        ib = self._ib
         soc = np.empty(n); inn = np.zeros(n); nis = np.zeros(n)
         gain = np.zeros(n); sig = np.empty(n); vp = np.empty(n); bh = np.zeros(n)
         for k in range(n):
@@ -376,11 +397,11 @@ class UKF(_BaseFilter):
             e = float(v_meas[k]) - y_hat
             x = x + K * e
             x[0] = float(np.clip(x[0], *c.soc_clip))
-            x[3] = float(np.clip(x[3], -c.b_clip, c.b_clip))
+            x[ib] = float(np.clip(x[ib], -c.b_clip, c.b_clip))
             P = self._psd(P - np.outer(K, Pxy))
             soc[k] = x[0]; inn[k] = e; nis[k] = e * e / S
             gain[k] = K[0]; sig[k] = float(np.sqrt(max(P[0, 0], 0.0)))
-            vp[k] = y_hat; bh[k] = x[3]
+            vp[k] = y_hat; bh[k] = x[ib]
         return self._pack(soc, inn, nis, gain, sig, vp, bh)
 
 
@@ -407,6 +428,7 @@ class AEKF(EKF):
         F = self._F(dt)
         Q = self._Q()
         R = c.sigma_v ** 2
+        ib = self._ib
         soc = np.empty(n); inn = np.zeros(n); nis = np.zeros(n)
         gain = np.zeros(n); sig = np.empty(n); vp = np.empty(n)
         bh = np.zeros(n); r_hist = np.empty(n)
@@ -422,8 +444,8 @@ class AEKF(EKF):
             e = float(v_meas[k]) - y_hat
             x = x + K * e
             x[0] = float(np.clip(x[0], *c.soc_clip))
-            x[3] = float(np.clip(x[3], -c.b_clip, c.b_clip))
-            IKH = np.eye(NDIM) - np.outer(K, H)
+            x[ib] = float(np.clip(x[ib], -c.b_clip, c.b_clip))
+            IKH = np.eye(self.ndim) - np.outer(K, H)
             P = IKH @ P @ IKH.T + R * np.outer(K, K)
             P = 0.5 * (P + P.T)
 
@@ -437,7 +459,7 @@ class AEKF(EKF):
                 R = 0.8 * R + 0.2 * r_new        # 平滑，避免单窗抖动
             soc[k] = x[0]; inn[k] = e; nis[k] = e * e / S
             gain[k] = K[0]; sig[k] = float(np.sqrt(max(P[0, 0], 0.0)))
-            vp[k] = y_hat; bh[k] = x[3]; r_hist[k] = R
+            vp[k] = y_hat; bh[k] = x[ib]; r_hist[k] = R
         out = self._pack(soc, inn, nis, gain, sig, vp, bh)
         out["R"] = r_hist
         return out
@@ -469,77 +491,83 @@ class EKFQ(EKF):
     """
 
     name = "ekfq"
-    NDIM = 5
 
     def __init__(self, *a, sigma_q0: float = 0.05, q_q: float = 1e-10, **kw):
         super().__init__(*a, **kw)
         self.sigma_q0 = float(sigma_q0)          # 相对容量（分数）
         self.q_q = float(q_q)                    # 容量过程噪声（Ah²/步）
+        self.ndim = self.nr + 3                  # 追加 q 状态
+
+    @property
+    def _iq(self) -> int:
+        return self.nr + 2
 
     def _F(self, dt: float, i: float, q: float) -> np.ndarray:
         """状态转移雅可比。``∂soc/∂q = −η·i·dt/(3600 q²)`` 依赖当前电流与容量，
         所以必须每步重算（EKF 基类里 F 是常数，这里不是）。"""
-        a1, _, a2, _ = self._ab(dt)
-        F = np.eye(self.NDIM)
-        F[1, 1], F[2, 2] = a1, a2
+        F = np.eye(self.ndim)
+        for j, (a, _) in enumerate(self._pairs(dt)):
+            F[1 + j, 1 + j] = a
         q = max(float(q), 1e-6)
-        F[0, 4] = -self.cfg.eta * float(i) * dt / (3600.0 * q * q)
+        F[0, self._iq] = -self.cfg.eta * float(i) * dt / (3600.0 * q * q)
         return F
 
     def _predict(self, x: np.ndarray, i: float, dt: float, clip: bool = True,
                  q: Optional[float] = None) -> np.ndarray:
-        """``q`` 参数忽略：EKFQ 的容量来自状态 ``x[4]``，不接受外部锚点覆盖。"""
+        """``q`` 参数忽略：EKFQ 的容量来自状态 ``x[_iq]``，不接受外部锚点覆盖。"""
         c = self.cfg
-        a1, b1, a2, b2 = self._ab(dt)
-        q = max(float(x[4]), 1e-6)
+        q = max(float(x[self._iq]), 1e-6)
         soc = x[0] + c.eta * i * dt / (3600.0 * q)
-        u1 = a1 * x[1] + b1 * i
-        u2 = a2 * x[2] + b2 * i
+        u = [a * x[1 + j] + b * i for j, (a, b) in enumerate(self._pairs(dt))]
         if not clip:
-            return np.array([soc, u1, u2, x[3], x[4]])
+            return np.array([soc, *u, x[self._ib], x[self._iq]])
         return np.array([np.clip(soc, *c.soc_clip),
-                         float(np.clip(u1, -c.u_clip, c.u_clip)),
-                         float(np.clip(u2, -c.u_clip, c.u_clip)),
-                         float(np.clip(x[3], -c.b_clip, c.b_clip)), q])
+                         *[float(np.clip(uj, -c.u_clip, c.u_clip)) for uj in u],
+                         float(np.clip(x[self._ib], -c.b_clip, c.b_clip)), q])
 
     def _H(self, x: np.ndarray, temp_c: float) -> np.ndarray:
-        return np.array([[_docv_scalar(self.ocv, float(x[0]), temp_c), 1.0, 1.0, 1.0, 0.0]])
+        return np.array([[_docv_scalar(self.ocv, float(x[0]), temp_c)]
+                         + [1.0] * self.nr + [1.0, 0.0]])
 
     def _init_state(self, soc_init: Optional[float], i0: float = 0.0) -> np.ndarray:
         s0 = self.cfg.soc0 if soc_init is None else float(soc_init)
-        return np.array([s0, self.p.r1 * i0, self.p.r2 * i0, 0.0, self.q_cap])
+        u0 = [self.p.r1 * i0, self.p.r2 * i0]
+        if self.nr > 2:
+            u0.append(self.p.r3 * i0)
+        return np.array([s0, *u0, 0.0, self.q_cap])
 
     def _init_cov(self) -> np.ndarray:
         c = self.cfg
         sq = (self.sigma_q0 * self.q_cap) ** 2
-        return np.diag([c.sigma_soc0 ** 2, c.sigma_u0 ** 2, c.sigma_u0 ** 2,
-                        c.sigma_b0 ** 2, sq])
+        return np.diag([c.sigma_soc0 ** 2] + [c.sigma_u0 ** 2] * self.nr
+                       + [c.sigma_b0 ** 2, sq])
 
     def _Q(self) -> np.ndarray:
         c = self.cfg
-        return np.diag([c.q_soc, c.q_u, c.q_u, c.q_b, self.q_q])
+        return np.diag([c.q_soc] + [c.q_u] * self.nr + [c.q_b, self.q_q])
 
     def _run(self, prof, dt, v_meas, soc_init, q_arr=None, r0_arr=None):
         c = self.cfg
         n = len(prof)
         i_arr, t_arr = prof.current_a, prof.temp_c
-        # q_arr 忽略：容量由状态 x[4] 演化，外部锚点的 Q̂ 与 EKFQ 互斥（r0 仍生效）
+        # q_arr 忽略：容量由状态 x[_iq] 演化，外部锚点的 Q̂ 与 EKFQ 互斥（r0 仍生效）
         r0_arr = np.full(n, self.p.r0) if r0_arr is None else np.asarray(r0_arr, float)
         x = self._init_state(soc_init, float(i_arr[0]) if n else 0.0)
         P = self._init_cov()
         Q = self._Q()
         R = c.sigma_v ** 2
-        nd = self.NDIM
+        nd = self.ndim
+        ib, iq = self._ib, self._iq
         soc = np.empty(n); inn = np.zeros(n); nis = np.zeros(n)
         gain = np.zeros(n); sig = np.empty(n); vp = np.empty(n); bh = np.zeros(n)
         qh = np.empty(n)
         for k in range(n):
             if k > 0:
-                F = self._F(dt, float(i_arr[k - 1]), float(x[4]))
+                F = self._F(dt, float(i_arr[k - 1]), float(x[iq]))
                 x = self._predict(x, i_arr[k - 1], dt)
                 P = F @ P @ F.T + Q
             # 容量下限保护：q 只允许在 [0.5, 1.5]×初值内游走，防止奇异
-            x[4] = float(np.clip(x[4], 0.5 * self.q_cap, 1.5 * self.q_cap))
+            x[iq] = float(np.clip(x[iq], 0.5 * self.q_cap, 1.5 * self.q_cap))
             H = self._H(x, float(t_arr[k]))
             y_hat = self._h(x, i_arr[k], float(t_arr[k]), r0=r0_arr[k])
             S = float((H @ P @ H.T)[0, 0]) + R
@@ -547,14 +575,14 @@ class EKFQ(EKF):
             e = float(v_meas[k]) - y_hat
             x = x + K * e
             x[0] = float(np.clip(x[0], *c.soc_clip))
-            x[3] = float(np.clip(x[3], -c.b_clip, c.b_clip))
-            x[4] = float(np.clip(x[4], 0.5 * self.q_cap, 1.5 * self.q_cap))
+            x[ib] = float(np.clip(x[ib], -c.b_clip, c.b_clip))
+            x[iq] = float(np.clip(x[iq], 0.5 * self.q_cap, 1.5 * self.q_cap))
             IKH = np.eye(nd) - np.outer(K, H)
             P = IKH @ P @ IKH.T + R * np.outer(K, K)
             P = 0.5 * (P + P.T)
             soc[k] = x[0]; inn[k] = e; nis[k] = e * e / S
             gain[k] = K[0]; sig[k] = float(np.sqrt(max(P[0, 0], 0.0)))
-            vp[k] = y_hat; bh[k] = x[3]; qh[k] = x[4]
+            vp[k] = y_hat; bh[k] = x[ib]; qh[k] = x[iq]
         out = self._pack(soc, inn, nis, gain, sig, vp, bh)
         out["q_hat"] = qh
         return out

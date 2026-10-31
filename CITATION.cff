@@ -21,8 +21,16 @@ abstract: >-
   drifting capacity. An external SOH-anchor interface (SoHSchedule, piecewise-constant
   Q-hat(t)/R0-hat(t)) quantifies what a companion SOH estimator must deliver: bias
   within +/-2 %, staleness (walk rate x refresh period) within 4 %, and R0 within
-  +/-25 % on NCA (R0 doubled costs +8.2 pp there, +1.4 pp on LFP).
-version: 1.3.0
+  +/-25 % on NCA (R0 doubled costs +8.2 pp there, +1.4 pp on LFP). A fifth-round
+  residual autopsy kills three of four candidate mechanisms (hysteresis worth 4.7 mV
+  only, a third RC changes LOO residual by 0-1.9 %, slow residual is neither
+  polarisation nor thermal) and identifies the true cause: OCV-curve shape error on
+  LFP (strict-LOO Delta-OCV recalibration drops 37.4 -> 17.6 mV) and out-of-
+  distribution cold high-power extrapolation on NCA (stays at 41.7 mV). A synthetic
+  sweep sets the online-capacity-identification (EKFQ) feasibility threshold at slow
+  residual <= 20 mV; below it EKFQ starting from a 5 % capacity over-estimate beats
+  fixed-Q EKF (1.63 vs 2.44 pp), above it the v1.2 negative result stands.
+version: 1.4.0
 date-released: 2026-10-31
 license: MIT
 repository-code: "https://github.com/ilo-love7/battery-soc-ekf-ukf"

@@ -170,3 +170,35 @@ def test_smoothed_curve_roundtrip_is_not_smoothed_twice():
     # 若错误地二次平滑，曲线会被明显压低
     twice = ocvmod.from_rest_points(d["soc"], d["ocv"], temp_c=25.0, smooth_mv=1.5)
     assert np.max(np.abs(twice(g) - sm(g))) > 1e-6
+
+
+def test_shape_corrected_adds_delta_and_fixes_slope():
+    """ΔOCV 形状修正：数值必须加 Δ、docv 必须叠加 Δ 斜率（滤波器 H 依赖它）。"""
+    soc = np.linspace(0, 1, 21)
+    base = ocvmod.from_rest_points(soc, 3.2 + soc, temp_c=25.0)
+    table = ocvmod.OCVTable({25.0: base})
+    b2d = ocvmod.OCV2D(table)
+    knots = [0.1, 0.5, 0.9]
+    delta_mv = [10.0, -20.0, 30.0]
+    sc = ocvmod.ShapeCorrected(b2d, knots, delta_mv)
+    v0 = b2d(np.array([0.5]), 25.0)
+    v1 = sc(np.array([0.5]), 25.0)
+    assert float(v1[0] - v0[0]) == pytest.approx(-0.020, abs=1e-12)
+    # 线段内部斜率（0.1→0.5 段：Δ 从 +10 → −20 mV ⇒ dΔ/dsoc = −0.075 V/unit）
+    # 不在结点 0.5 上测 —— 折点处导数无定义，中心差分给的是两侧平均
+    d0 = b2d.docv(np.array([0.3]), 25.0)
+    d1 = sc.docv(np.array([0.3]), 25.0)
+    assert float(d1[0] - d0[0]) == pytest.approx(-0.075, abs=5e-3)
+    # 端点形状：0.1 处 +10 mV
+    assert float(sc(np.array([0.1]), 25.0)[0] - b2d(np.array([0.1]), 25.0)[0]) == pytest.approx(
+        0.010, abs=1e-12)
+
+
+def test_shape_corrected_batch_matches_scalar():
+    soc = np.linspace(0, 1, 11)
+    base = ocvmod.from_rest_points(soc, 3.1 + 0.5 * soc, temp_c=25.0)
+    b2d = ocvmod.OCV2D(ocvmod.OCVTable({25.0: base}))
+    sc = ocvmod.ShapeCorrected(b2d, [0.0, 0.5, 1.0], [0.0, 40.0, -10.0])
+    s = np.array([0.05, 0.33, 0.66, 0.95])
+    t = np.full(4, 25.0)
+    assert np.allclose(sc.batch(s, t), sc(s, 25.0), atol=1e-12)

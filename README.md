@@ -43,7 +43,7 @@ Four things this benchmark says that are worth knowing before you deploy a filte
   the cell by 30 K *while driving*, so a single-temperature table is off by tens of mV.
 - **Linear extrapolation outside SOC ∈ [0,1]** — required for UKF, harmless for EKF. See below.
 - **Leave-one-profile-out calibration** and **four stress scenarios** instead of one flattering number.
-- **85 unit tests, all on synthetic data** — they run without the datasets in CI (Python 3.10 + 3.12).
+- **96 unit tests, all on synthetic data** — they run without the datasets in CI (Python 3.10 + 3.12).
 
 ## Results
 
@@ -138,6 +138,24 @@ while a 5-minute refresh clamps it back to the floor (`err_end ≈ (ε + δ/2)·
 the integration *rate* only — accumulated error needs a SOC reference event (full charge / rest
 OCV) to be recomputed. Internal-resistance ageing matters on NCA (R̂0 doubled → +8.2 pp;
 LFP only +1.4) and is asymmetric: under-estimating R0 is cheap, over-estimating is not.
+
+**Residual autopsy & EKFQ re-verification (v1.4).** The 38–53 mV residual was dissected and
+**three of four prior hypotheses were killed by data**: charge/discharge hysteresis is worth only
+4.7 mV; adding a third RC *and* a current-dependent R0 changes the LOO residual by 0–1.9 %
+(a parameter pinned at its bound is a symptom of the wrong model *family*, not of too few
+branches); the slow residual is neither polarisation nor thermal (R² ≈ 0.05 against i-low-pass
+and T). The real cause on LFP is **OCV-curve shape error**: ΔOCV(soc) recalibration learned on
+train folds (strict LOO) drops the residual 37.4 → 17.6 mV (shape amplitude 185 mV — the
+ageing cell's plateau moved and a C/20 rest cannot see it; `bmsoc.ocv.ShapeCorrected` applies
+the correction, slope included). NCA's residual is *out-of-distribution cold high-power*
+(US06 at −20 °C, up to 242 mV) and stays at 41.7 mV. A synthetic sweep sets the EKFQ
+feasibility threshold at **slow residual ≤ 20 mV** (q̂ error grows +0.25 % per 10 mV,
+linearly budgetable). Re-verification on real data: with the corrected LFP model, EKFQ starting
+from a 5 % capacity *over*-estimate beats fixed-Q EKF (1.63 vs 2.44 pp, q convergence 46 %),
+while NCA's negative result stands unchanged (7.7–10.6 vs 2.3–4.5 pp). The v1.2 verdict
+"EKFQ does not work" now reads "**EKFQ does not work when the residual exceeds 20 mV**" —
+a conditional tool (low residual *and* the over-estimate side); the external SOH anchor
+remains the default route.
 
 ## Install
 
@@ -304,7 +322,14 @@ python scripts/17_aging_anchor.py --dataset calce         # ~13 min
 python scripts/17_aging_anchor.py --dataset panasonic     # ~17 min
 python scripts/18_round4_figures.py                       # two aging figures
 
-python -m pytest tests -q                        # 85 tests, no dataset needed
+# residual autopsy (v1.4) — four-way residual split / model variants + ΔOCV / EKFQ boundary
+python scripts/19_residual_autopsy.py                     # ~3 min
+python scripts/20_model_upgrade.py --stage variants       # 4 variants × LOO, ~12 min
+python scripts/20_model_upgrade.py --stage docv           # ΔOCV verdict, ~5 min
+python scripts/21_ekfq_boundary.py                        # synthetic boundary + real re-verify, ~8 min
+python scripts/22_round5_figures.py                       # four round-5 figures
+
+python -m pytest tests -q                        # 96 tests, no dataset needed
 ```
 
 ## Limitations
@@ -314,18 +339,26 @@ python -m pytest tests -q                        # 85 tests, no dataset needed
   so §10 only claims "the method transfers", never "LFP is easier". And "transfers" now comes
   with an explicit precondition: **starting at 100 % SOC** (v1.2 §10.7 shows mid-plateau
   power-up is 15–30× harder).
-- **Capacity uncertainty dominates the error budget, and online identification does not work.**
-  A 5–10 % capacity error costs 3–7 pp (growth law verified exactly); adding capacity as a filter
-  state absorbs the model residual instead and degrades results (v1.2 §10.8). The external-anchor
-  route (v1.3 §10.9) is specified but not yet wired to a real SOH estimator: A2 must deliver
-  bias ≤ ±2 %, staleness (walk × refresh period) ≤ 4 %, and on NCA R̂0 within ±25 %; R1/τ ageing
-  and SOC-reference-event recomputation are still open.
-- **OCV needs rest.** The table comes from HPPC rest-end voltages; during a drive the cell never
-  fully relaxes, so the cold folds need `dv` up to −138 mV (0 of 24 folds hit the −150 mV bound,
-  but the sign and magnitude vary monotonically with temperature).
-- **2-RC is not enough at multi-hour scale.** `τ2` hits the 6000 s bound in 17 of 24 NCA folds (24 of 24
-  on LFP); the
-  slow branch degenerates into a drift term. A 3rd-order or fractional model would use that DOF.
+- **Capacity uncertainty dominates the error budget, and online identification works only
+  conditionally.** A 5–10 % capacity error costs 3–7 pp (growth law verified exactly); on real
+  data a capacity filter state absorbs the model residual instead and degrades results
+  (v1.2 §10.8). Round 5 (§10.10) found the exit condition: once the residual is pushed below
+  20 mV (ΔOCV on LFP), EKFQ starting from a 5 % over-estimate beats fixed-Q EKF (1.63 vs
+  2.44 pp) — but only on the over-estimate side, and NCA (41.7 mV residual) does not qualify.
+  The external-anchor route (v1.3 §10.9) is specified but not yet wired to a real SOH estimator:
+  A2 must deliver bias ≤ ±2 %, staleness (walk × refresh period) ≤ 4 %, and on NCA R̂0 within
+  ±25 %; R1/τ ageing and SOC-reference-event recomputation are still open.
+- **OCV needs rest — and on LFP also a dynamic shape recalibration.** The table comes from HPPC
+  rest-end voltages; during a drive the cell never fully relaxes, so the cold folds need `dv` up
+  to −138 mV. On LFP the C/20 curve's *shape* is wrong under dynamics (185 mV amplitude,
+  invisible at rest); `ShapeCorrected` fixes it (37.4 → 17.6 mV) but is not yet a default
+  pipeline step. NCA's residual is out-of-distribution cold high-power (US06 at −20 °C,
+  up to 242 mV) — a smooth model family cannot extrapolate there; R0(i, T) from high-rate
+  HPPC pulses is the stated route, not done.
+- **Adding RC branches does not lower the residual.** `τ2` hits the 6000 s bound in 17 of 24 NCA
+  folds (24 of 24 on LFP), but a 3rd branch and a current-dependent R0 change LOO residual by
+  only 0–1.9 % (parameters pinned at bounds). The bound is a symptom of the wrong model family,
+  not of too few branches.
 - **Current bias is given, not estimated.** The filter can only cancel it via voltage feedback
   (a 5th bias state is collinear with SOC on the plateau, hence unobservable).
 - **Convergence numbers are slightly optimistic**: a 300 s rest window is kept. For a

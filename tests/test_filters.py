@@ -341,3 +341,64 @@ def test_ekfq_ignores_anchor_q_but_uses_r0():
     assert np.allclose(same["soc_hat"], plain["soc_hat"], atol=1e-12)
     shifted = EKFQ(**kw).run(prof, anchor=SoHSchedule([0.0], [CAP], [2.0 * TRUE.r0]))
     assert not np.allclose(shifted["soc_hat"], plain["soc_hat"])
+
+
+# ---- 三阶 RC / r0_cur 进滤波器（v1.4） -----------------------------------
+
+TRUE3 = RCParams(r0=0.030, r1=0.012, tau1=10.0, r2=0.040, tau2=400.0,
+                 r3=0.030, tau3=800.0)
+
+
+def test_filters_run_with_third_branch():
+    """3RC 参数下 EKF/UKF/EKFQ 都能跑且收得住；2RC 滤波器跑 3RC 植物会留系统残差。"""
+    n = 8000
+    rng = np.random.default_rng(7)
+    i = np.clip(rng.normal(-0.5, 1.8, n), -6.0, 3.0)
+    i[0] = 0.0                      # 与滤波器 u_j=r_j·i0 的初值约定对齐
+    sim = simulate(TRUE3, _curve(), i, DT, soc0=0.95, capacity_ah=CAP)
+    prof = DrivingProfile(t_s=np.arange(n) * DT, current_a=i,
+                          voltage_v=sim["voltage"], temp_c=np.full(n, 25.0),
+                          soc_ref=sim["soc"], capacity_ah=CAP)
+    cfg = FilterConfig(soc0=0.95, sigma_soc0=0.05)
+    errs = {}
+    for cls in (EKF, UKF, EKFQ):
+        est = cls(ocv=_curve(), params=TRUE3, capacity_ah=CAP, cfg=cfg)
+        assert est.nr == 3
+        assert est.ndim == (6 if cls is EKFQ else 5)
+        out = est.run(prof)
+        e = float(np.sqrt(np.mean((out["soc_hat"] - prof.soc_ref) ** 2)))
+        assert e < 0.02
+        errs[cls.name] = e
+    # 对照：2RC 参数缺一条慢支路（u3 摆幅约 ±30 mV），开环残差显著更大。
+    # 滤波器 SOC 误差可能被 b 部分吸收，所以比较**电压预测残差**而不是 SOC RMSE。
+    out2 = EKF(ocv=_curve(), params=TRUE, capacity_ah=CAP, cfg=cfg).run(prof)
+    out3 = EKF(ocv=_curve(), params=TRUE3, capacity_ah=CAP, cfg=cfg).run(prof)
+    vres2 = float(np.sqrt(np.mean((out2["volt_pred"] - prof.voltage_v) ** 2)))
+    vres3 = float(np.sqrt(np.mean((out3["volt_pred"] - prof.voltage_v) ** 2)))
+    assert vres3 < vres2
+    assert abs(sim["u3"]).max() > 0.015     # 前提：第三支路真的起来了
+
+
+def test_ekfq_third_branch_f_jacobian_shape():
+    est = EKFQ(ocv=_curve(), params=TRUE3, capacity_ah=CAP, cfg=FilterConfig(soc0=0.5))
+    assert est.ndim == 6 and est._iq == 5
+    F = est._F(DT, i=-2.0, q=CAP)
+    assert F.shape == (6, 6)
+    assert F[0, 5] == pytest.approx(2.0 * DT / (3600.0 * CAP * CAP), abs=1e-12)
+    assert F[3, 3] == pytest.approx(np.exp(-DT / TRUE3.tau3), abs=1e-12)
+    # 量测雅可比：三条极化支路各 1，q 列 0
+    H = est._H(est._init_state(0.5), 25.0)
+    assert H.shape == (1, 6)
+    assert list(H[0, 1:]) == [1.0, 1.0, 1.0, 1.0, 0.0]
+
+
+def test_r0_cur_enters_observation():
+    """r0_cur 在 _h 里必须是 i·|i| 项（符号：放电 i<0 时压降更深）。"""
+    p = RCParams(r0=0.03, r1=0.0, tau1=1.0, r2=0.0, tau2=1.0, r0_cur=0.01)
+    est = EKF(ocv=_curve(), params=p, capacity_ah=CAP, cfg=FilterConfig(soc0=0.5))
+    x = est._init_state(0.5, i0=0.0)
+    v_dis = est._h(x, i=-4.0, temp_c=25.0)
+    v_chg = est._h(x, i=4.0, temp_c=25.0)
+    v_zero = est._h(x, i=0.0, temp_c=25.0)
+    assert v_dis == pytest.approx(v_zero + 0.03 * (-4.0) + 0.01 * (-4.0) * 4.0, abs=1e-9)
+    assert v_chg == pytest.approx(v_zero + 0.03 * 4.0 + 0.01 * 4.0 * 4.0, abs=1e-9)

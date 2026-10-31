@@ -1,0 +1,10 @@
+{
+ "dataset": "panasonic",
+ "best_variant": "2rc",
+ "before_median_mv": 42.08092790644411,
+ "after_median_mv": 41.659673030261885,
+ "gain_median_mv": 0.9339804558193094,
+ "after_p90_mv": 88.28765904947112,
+ "docv_max_median_mv": 22.427284602226607,
+ "n_folds": 24
+}

@@ -1,0 +1,10 @@
+{
+ "dataset": "calce",
+ "best_variant": "3rc_cur",
+ "before_median_mv": 37.44560600828895,
+ "after_median_mv": 17.57285874556284,
+ "gain_median_mv": 21.20372409083719,
+ "after_p90_mv": 24.66857095128018,
+ "docv_max_median_mv": 184.61676956248272,
+ "n_folds": 24
+}
