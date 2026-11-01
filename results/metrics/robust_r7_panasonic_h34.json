@@ -1,0 +1,36 @@
+{
+ "dataset": "panasonic",
+ "lines": {
+  "L1_qrel_drop": 0.2,
+  "L2_soc_grow": 0.1,
+  "L2_soc_grow_max": 0.25
+ },
+ "best": "clip3",
+ "checks": {
+  "L1_qrel_drop": true,
+  "L2_soc_guard": false
+ },
+ "per_variant": {
+  "clip3": {
+   "q_rel_abs_med_base": 0.17772929498031675,
+   "q_rel_abs_med_rob": 0.13752850979108194,
+   "q_rel_rel_drop": 0.22619110256239405,
+   "q_ok_base": 0.020833333333333332,
+   "q_ok_rob": 0.020833333333333332,
+   "soc_grow": -0.057661410738113546,
+   "soc_grow_max": 3.995855850858798,
+   "robust_frac_med": 0.1523221230404334
+  },
+  "huber3": {
+   "q_rel_abs_med_base": 0.17772929498031675,
+   "q_rel_abs_med_rob": 0.15361861144480843,
+   "q_rel_rel_drop": 0.1356595913925082,
+   "q_ok_base": 0.020833333333333332,
+   "q_ok_rob": 0.020833333333333332,
+   "soc_grow": -0.06991706731926539,
+   "soc_grow_max": 3.165674407833036,
+   "robust_frac_med": 0.15074642709120759
+  }
+ },
+ "verdict": "被否（护栏）：clip3 SOC 恶化 -6% / 单折 +400% —— 拆东补西"
+}

@@ -81,6 +81,9 @@ class FilterConfig:
     u_clip: float = 0.6                # 极化电压限幅 (V)
     b_clip: float = 0.30               # 偏置限幅 (V)
     soc_clip: Tuple[float, float] = (-0.05, 1.05)
+    # ---- 鲁棒量测更新（第十一轮，对症 white 重尾灌 q）----
+    innov_robust: str = "none"         # none | clip | huber | gate
+    innov_kappa: float = 3.0           # 阈值 δ = kappa·√S（归一化新息尺度）
 
 
 class SoHSchedule:
@@ -215,6 +218,45 @@ class _BaseFilter:
         c = self.cfg
         return np.diag([c.q_soc] + [c.q_u] * self.nr + [c.q_b])
 
+    def _robust_correct(self, e: float, S: float, K: np.ndarray, H: np.ndarray,
+                        P: np.ndarray, R: float):
+        """鲁棒量测更新的增益/新息修正（第十一轮）。
+
+        white 重尾（kurt 7–30）在标准 EKFQ 里直接乘进状态，大 |e| 步把 ``q``
+        灌飞（§45/§49）。三种对症模式（阈值 ``δ = innov_kappa·√S``）：
+
+        - ``none``  ：原样（默认，向后兼容）
+        - ``clip``  ：``e`` 截断到 ±δ（Masreliez ψ），K 不变
+        - ``huber`` ：|e|>δ 时按 ``w = δ/|e|`` 抬 ``R → R/w`` 重算 K（有界影响，
+                      大新息不整步丢弃、只缩增益）
+        - ``gate``  ：|e|>δ 时整步跳过（w=0）
+
+        返回 ``(K_use, e_use, R_use, w)``，``w ∈ [0,1]`` 是本步有效权重（诊断用）。
+        """
+        c = self.cfg
+        mode = c.innov_robust
+        if mode == "none" or not np.isfinite(e):
+            return K, e, R, 1.0
+        delta = c.innov_kappa * float(np.sqrt(max(S, 1e-18)))
+        if mode == "gate":
+            if abs(e) > delta:
+                return np.zeros_like(K), 0.0, R, 0.0
+            return K, e, R, 1.0
+        if mode == "clip":
+            if abs(e) <= delta:
+                return K, e, R, 1.0
+            e_use = float(np.clip(e, -delta, delta))
+            return K, e_use, R, delta / abs(e)
+        if mode == "huber":
+            if abs(e) <= delta:
+                return K, e, R, 1.0
+            w = delta / abs(e)
+            r_eff = R / w
+            s_eff = float((H @ P @ H.T)[0, 0]) + r_eff
+            k_eff = (P @ H.T).reshape(-1) / s_eff
+            return k_eff, e, r_eff, w
+        raise ValueError(f"未知 innov_robust={mode!r}（none|clip|huber|gate）")
+
     def run(self, profile: DrivingProfile, voltage_noise: float = 0.0,
             seed: int = 0, soc_init: Optional[float] = None,
             current_bias_a: float = 0.0,
@@ -300,6 +342,7 @@ class EKF(_BaseFilter):
         ib = self._ib
         soc = np.empty(n); inn = np.zeros(n); nis = np.zeros(n)
         gain = np.zeros(n); sig = np.empty(n); vp = np.empty(n); bh = np.zeros(n)
+        inn_used = np.zeros(n); rw = np.ones(n)
         for k in range(n):
             if k > 0:
                 x = self._predict(x, i_arr[k - 1], dt, q=q_arr[k - 1])
@@ -309,16 +352,21 @@ class EKF(_BaseFilter):
             S = float((H @ P @ H.T)[0, 0]) + R
             K = (P @ H.T).reshape(-1) / S
             e = float(v_meas[k]) - y_hat
-            x = x + K * e
+            K, e_use, R_use, w = self._robust_correct(e, S, K, H, P, R)
+            x = x + K * e_use
             x[0] = float(np.clip(x[0], *c.soc_clip))
             x[ib] = float(np.clip(x[ib], -c.b_clip, c.b_clip))
             IKH = np.eye(self.ndim) - np.outer(K, H)
-            P = IKH @ P @ IKH.T + R * np.outer(K, K)      # Joseph 形式
+            P = IKH @ P @ IKH.T + R_use * np.outer(K, K)      # Joseph 形式
             P = 0.5 * (P + P.T)
             soc[k] = x[0]; inn[k] = e; nis[k] = e * e / S
             gain[k] = K[0]; sig[k] = float(np.sqrt(max(P[0, 0], 0.0)))
             vp[k] = y_hat; bh[k] = x[ib]
-        return self._pack(soc, inn, nis, gain, sig, vp, bh)
+            inn_used[k] = e_use; rw[k] = w
+        out = self._pack(soc, inn, nis, gain, sig, vp, bh)
+        out["innov_used"] = inn_used
+        out["robust_w"] = rw
+        return out
 
 
 class UKF(_BaseFilter):
@@ -442,11 +490,12 @@ class AEKF(EKF):
             S = float((H @ P @ H.T)[0, 0]) + R
             K = (P @ H.T).reshape(-1) / S
             e = float(v_meas[k]) - y_hat
-            x = x + K * e
+            K, e_use, R_use, w = self._robust_correct(e, S, K, H, P, R)
+            x = x + K * e_use
             x[0] = float(np.clip(x[0], *c.soc_clip))
             x[ib] = float(np.clip(x[ib], -c.b_clip, c.b_clip))
             IKH = np.eye(self.ndim) - np.outer(K, H)
-            P = IKH @ P @ IKH.T + R * np.outer(K, K)
+            P = IKH @ P @ IKH.T + R_use * np.outer(K, K)
             P = 0.5 * (P + P.T)
 
             buf.append(e)
@@ -561,6 +610,7 @@ class EKFQ(EKF):
         soc = np.empty(n); inn = np.zeros(n); nis = np.zeros(n)
         gain = np.zeros(n); sig = np.empty(n); vp = np.empty(n); bh = np.zeros(n)
         qh = np.empty(n)
+        inn_used = np.zeros(n); rw = np.ones(n)
         for k in range(n):
             if k > 0:
                 F = self._F(dt, float(i_arr[k - 1]), float(x[iq]))
@@ -573,18 +623,22 @@ class EKFQ(EKF):
             S = float((H @ P @ H.T)[0, 0]) + R
             K = (P @ H.T).reshape(-1) / S
             e = float(v_meas[k]) - y_hat
-            x = x + K * e
+            K, e_use, R_use, w = self._robust_correct(e, S, K, H, P, R)
+            x = x + K * e_use
             x[0] = float(np.clip(x[0], *c.soc_clip))
             x[ib] = float(np.clip(x[ib], -c.b_clip, c.b_clip))
             x[iq] = float(np.clip(x[iq], 0.5 * self.q_cap, 1.5 * self.q_cap))
             IKH = np.eye(nd) - np.outer(K, H)
-            P = IKH @ P @ IKH.T + R * np.outer(K, K)
+            P = IKH @ P @ IKH.T + R_use * np.outer(K, K)
             P = 0.5 * (P + P.T)
             soc[k] = x[0]; inn[k] = e; nis[k] = e * e / S
             gain[k] = K[0]; sig[k] = float(np.sqrt(max(P[0, 0], 0.0)))
             vp[k] = y_hat; bh[k] = x[ib]; qh[k] = x[iq]
+            inn_used[k] = e_use; rw[k] = w
         out = self._pack(soc, inn, nis, gain, sig, vp, bh)
         out["q_hat"] = qh
+        out["innov_used"] = inn_used
+        out["robust_w"] = rw
         return out
 
 

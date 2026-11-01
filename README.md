@@ -43,7 +43,7 @@ Four things this benchmark says that are worth knowing before you deploy a filte
   the cell by 30 K *while driving*, so a single-temperature table is off by tens of mV.
 - **Linear extrapolation outside SOC ∈ [0,1]** — required for UKF, harmless for EKF. See below.
 - **Leave-one-profile-out calibration** and **four stress scenarios** instead of one flattering number.
-- **138 unit tests, all on synthetic data** — they run without the datasets in CI (Python 3.10 + 3.12).
+- **154 unit tests, all on synthetic data** — they run without the datasets in CI (Python 3.10 + 3.12).
 
 ## Results
 
@@ -248,8 +248,24 @@ sampling alignment" rejected**: an i-shift RMSE sweep (with passing synthetic
 controls) puts δ̂ sub-sample everywhere (−0.24…−0.50, consistent with a 1 s
 averaging window on the current channel). Updated attribution: **the bulk of
 white is not a missing fast RC** (the fold-oracle ceiling is 20 %) — fold-specific
-non-RC structure / BV-transport transients take over; **robust EKFQ is now the
-primary exit** (to be tested).
+non-RC structure / BV-transport transients take over.
+
+**Filter-side treatment of the heavy-tailed white (v1.10).** Robust EKFQ
+(innovation clip/huber/gate) measured end-to-end; three hypotheses, three
+verdicts. Tail statistics first: filtered residual kurtosis 6.5–29.3 and a
+3σ tail-energy share of **35–52 %** (Gaussian: 2.9 %) — the heavy tail carries
+a third to a half of the energy. **H32 partially**: gate3 cuts median |q̂| by
+**84 %** with SOC ratio 0.19 and a 100 % zero-residual control, but q_ok tops
+out at 25 %, just below the 30 % line; the dose is non-monotone (κ=2 beats
+κ=3/5). **H33 holds**: winsorising the top 5 % of the white component removes
+27 % of the poison, Gaussianising it (same variance) removes **64 %** — the
+poison is the *shape* of the heavy tail, not its variance. **H34 rejected by
+the guardrail**: median |q̂| on real folds drops 23 % and median SOC *improves*
+6 %, but one fold's SOC blows up **+400 %** (every catastrophic fold has
+cap_scale=0.95 — the robust update clips away the sustained innovation that
+would correct capacity, and q runs away). Updated guidance: **robust EKFQ is
+now a conditional exit** (never enable it blindly); next steps are a q-channel-
+only protection, an adaptive κ, and a Student-t measurement model.
 
 ## Install
 
@@ -460,7 +476,14 @@ python scripts/32_fastrc_round6.py --stage h30  --dataset panasonic  # ~2 min
 python scripts/32_fastrc_round6.py --stage h31  --dataset panasonic  # seconds
 python scripts/33_round10_figures.py                      # three round-10 figures
 
-python -m pytest tests -q                        # 138 tests, no dataset needed
+# filter-side treatment of the heavy-tailed white (v1.10) — probe / H32 / H33 / H34
+python scripts/34_robust_round7.py --stage probe --dataset panasonic # ~16 min
+python scripts/34_robust_round7.py --stage h32 --dataset panasonic   # seconds
+python scripts/34_robust_round7.py --stage h33 --dataset panasonic   # seconds
+python scripts/34_robust_round7.py --stage h34 --dataset panasonic   # seconds
+python scripts/35_round11_figures.py                      # three round-11 figures
+
+python -m pytest tests -q                        # 154 tests, no dataset needed
 ```
 
 ## Limitations

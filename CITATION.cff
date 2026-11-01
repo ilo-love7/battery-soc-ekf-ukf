@@ -74,8 +74,8 @@ abstract: >-
   (memory + di/dt concentration + heavy tails). The model-family exit is refined to
   a fast-polarization branch plus sampling alignment; filter-side robustification
   addresses the heavy-tailed innovation that poisons the capacity state.
-version: 1.9.0
-date-released: 2026-10-31
+version: 1.10.0
+date-released: 2026-11-01
 license: MIT
 repository-code: "https://github.com/ilo-love7/battery-soc-ekf-ukf"
 keywords:

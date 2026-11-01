@@ -40,7 +40,7 @@
   30 K 的温漂用单温度表会差几十毫伏。
 - **SOC ∈ [0,1] 之外按端点斜率线性外推**：UKF 必须这样，EKF 无所谓。
 - **留一工况标定** + **四个压力场景**，而不是一个好看的单一数字。
-- **138 项单元测试全部用合成数据**，CI 里不需要数据集（Python 3.10 + 3.12）。
+- **154 项单元测试全部用合成数据**，CI 里不需要数据集（Python 3.10 + 3.12）。
 
 ## 结果
 
@@ -197,7 +197,18 @@ innovation 鲁棒化（Huber/限幅，待测）。
 收敛率仅回 25%、refit 路线 0%。**H31「v/i 采样对齐」被否**：i 平移 RMSE 扫描
 （合成对照过检出力）δ̂ 全部亚样本（−0.24~−0.50，与 i 通道 1 s 平均窗方向一致）。
 定性修订：**white 的主体不是缺失快 RC**（折内 oracle 也只有 20%）——机制归属
-转向折特异非 RC 结构/BV 传质瞬态；**鲁棒 EKFQ 升为首选出口**（待测）。
+转向折特异非 RC 结构/BV 传质瞬态。
+
+**white 重尾的滤波器侧对症（v1.10）。** 鲁棒 EKFQ（innovation clip/huber/gate）
+实测三判决。尾部统计：滤波后残差 kurt 6.5–29.3、3σ 尾能份额 **35–52%**（高斯
+2.9%）——重尾是能量的三分之一到一半。**H32 部分成立**：gate3 的 |q̂| 中位
+相对下降 **84%**、SOC 比 0.19、零残差对照 100%，但 q_ok 最高 25% 贴线未达
+30%；剂量非单调（κ=2 优于 κ=3/5）。**H33 成立**：剥 white 5% 重尾减毒 27%、
+同方差高斯化减毒 **64%**——毒在重尾形状而非方差。**H34 被否（护栏）**：真实
+数据 |q̂| 中位降 23%、SOC 中位改善 6%，但**单折 SOC +400%**（灾难折全在
+cap_scale=0.95——鲁棒把容量修正所需的持续新息一并裁掉，q 跑飞）。定性修订：
+**鲁棒 EKFQ 降为条件出口**（不能无差别全开）；下一步 q 通道专用保护/自适应
+κ/Student-t 量测。
 
 ## 安装
 
@@ -402,7 +413,14 @@ python scripts/32_fastrc_round6.py --stage h30  --dataset panasonic  # 约 2 min
 python scripts/32_fastrc_round6.py --stage h31  --dataset panasonic  # 秒级
 python scripts/33_round10_figures.py                      # 三张第十轮图
 
-python -m pytest tests -q                        # 138 项，不需要数据集
+# white 重尾的滤波器侧对症（v1.10）：probe / H32 / H33 / H34
+python scripts/34_robust_round7.py --stage probe --dataset panasonic # 约 16 min
+python scripts/34_robust_round7.py --stage h32 --dataset panasonic   # 秒级
+python scripts/34_robust_round7.py --stage h33 --dataset panasonic   # 秒级
+python scripts/34_robust_round7.py --stage h34 --dataset panasonic   # 秒级
+python scripts/35_round11_figures.py                      # 三张第十一轮图
+
+python -m pytest tests -q                        # 154 项，不需要数据集
 ```
 
 ## 局限

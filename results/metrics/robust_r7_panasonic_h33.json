@@ -1,0 +1,61 @@
+{
+ "dataset": "panasonic",
+ "lines": {
+  "L1_winsor_drop": 0.2,
+  "L2_gauss_drop": 0.4
+ },
+ "checks": {
+  "L1_winsor": true,
+  "L2_gauss": true,
+  "L3_consistency": true
+ },
+ "cells": {
+  "base_full": {
+   "q_ok_rate": 0.0,
+   "q_rel_err_med": 0.3786884331063538,
+   "q_rel_abs_med": 0.3786884331063538,
+   "rmse_soc_med": 0.17712448077679385,
+   "n": 8
+  },
+  "base_winsor5": {
+   "q_ok_rate": 0.0,
+   "q_rel_err_med": 0.27630046301522804,
+   "q_rel_abs_med": 0.27630046301522804,
+   "rmse_soc_med": 0.12628720945506766,
+   "n": 8
+  },
+  "base_gauss": {
+   "q_ok_rate": 0.125,
+   "q_rel_err_med": 0.1344351396052016,
+   "q_rel_abs_med": 0.1344351396052016,
+   "rmse_soc_med": 0.05298868321540297,
+   "n": 8
+  },
+  "huber3_full": {
+   "q_ok_rate": 0.125,
+   "q_rel_err_med": 0.11841534513739738,
+   "q_rel_abs_med": 0.12472696117289278,
+   "rmse_soc_med": 0.0755443463264846,
+   "n": 8
+  },
+  "huber3_winsor5": {
+   "q_ok_rate": 0.125,
+   "q_rel_err_med": 0.18632023218278482,
+   "q_rel_abs_med": 0.18632023218278482,
+   "rmse_soc_med": 0.09585307468936805,
+   "n": 8
+  },
+  "huber3_gauss": {
+   "q_ok_rate": 0.125,
+   "q_rel_err_med": 0.037440919220612545,
+   "q_rel_abs_med": 0.05971112370526299,
+   "rmse_soc_med": 0.03201203870067179,
+   "n": 8
+  }
+ },
+ "drop_winsor": 0.2703752244325095,
+ "drop_gauss": 0.6449980304324591,
+ "gain_heavy": 0.253961471933461,
+ "gain_win": 0.08998023083244322,
+ "verdict": "成立：剥 white 5% 重尾后 |q̂| 相对下降 27% ≥20%，高斯化后 64% ≥40% —— 毒在重尾形状而非方差"
+}
