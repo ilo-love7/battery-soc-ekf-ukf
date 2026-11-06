@@ -1,52 +1,71 @@
+<div align="center">
+
 # 你的 SOC 到底错多少，为什么？
 
-**电池 SOC 的 EKF / UKF / AEKF 可复用估计器包，在 24 段 −20 °C ~ 25 °C 的动态工况上做
-留一工况标定与基准评测。**
+### 可复用的 EKF / UKF / AEKF 电池 SOC 估计包——24 条行车工况（−20 °C ~ 25 °C）留一标定基准
 
-[English](README.md)
+[![tests](https://github.com/ilo-love7/battery-soc-ekf-ukf/actions/workflows/ci.yml/badge.svg)](https://github.com/ilo-love7/battery-soc-ekf-ukf/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+![python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue)
+![tests](https://img.shields.io/badge/tests-154%20passed-brightgreen)
+![floor](https://img.shields.io/badge/model--error%20floor-2.62%20pp-orange)
+![data](https://img.shields.io/badge/data-Panasonic%20%2B%20CALCE-lightgrey)
 
-```
-                          末段 RMSE / 全程 RMSE（单位：百分点 pp）
-  场景（初值误差，电流偏置）          库仑计数    EKF     UKF    AEKF
-  known      (  0 pp,    0 mA)     0.01/0.01  2.80/2.62    –      –
-  bias20ma   (  0 pp,  +20 mA)     1.33/0.90  1.55/1.93 3.39/3.31 1.32/1.63
-  init30     (−30 pp,    0 mA)    25.37/28.68 3.89/3.31 4.18/3.81 2.95/3.11
-  hard       (−30 pp,  +20 mA)    24.65/27.86 2.23/2.88 3.14/3.21 1.79/1.72
-```
+<p align="center">
+  <a href="./README.md">English</a> · <b>简体中文</b>
+</p>
 
-这个基准给出四条结论，都是「部署之前就应该知道」的那一类：
+<p align="center">
+  <img src="docs/figures/soc_tracking.png" width="620" alt="留出行车工况上的 SOC 跟踪">
+</p>
 
-1. **地板是模型误差，不是滤波器。** 初值完全正确、电流完全准确时，EKF 仍有 2.62 pp，
-   而纯库仑计数是 0.01 pp——因为库仑计数根本不看模型。滤波器的作用不是「变得更准」，
-   而是**别让模型误差变成 SOC 误差**。
-2. **滤波器唯一的价值来自「初值未知」。** 初值偏 −30 pp 时 EKF 比库仑计数好 8.7 倍；
-   但电流偏置只有 20 mA 时，纯积分 0.90 pp **反而优于** EKF 的 1.93 pp。
-   分流器够准的话，纯积分很难被打败。
-3. **AEKF 稳定最好**（全程 1.63–3.11 pp，尾段 1.32–2.95 pp），`hard` 场景
-   92% 的工况 60 s 内收敛（EKF 50%、UKF 21%）。但它在「只有初值误差」的 `init30` 上
-   只比 EKF 好 0.2 pp——**自适应量测噪声治偏置，不治初值**。
-4. **UKF 没有系统性优势**，三个能比的场景里每一个都略差于 EKF，而且踩过两个真 bug
-   （见下文《UKF 为什么没有优势》）。修好之后仍略差，这才是可以写进报告的程度。
+</div>
 
 ---
 
+一个接口、四个估计器（`CoulombCounter`、`EKF`、`UKF`、`AEKF`），以及一个不肯自我美化的基准：24 条行车工况 × 4 个压力场景 × 2 种化学体系的留一标定。README 里每个数字都由命令再生。
+
+```
+                                tail RMSE / full RMSE  (百分点)
+  场景 (初值误差, 电流偏置)             CC        EKF       UKF      AEKF
+  known      (  0 pp,    0 mA)        0.01/0.01  2.80/2.62    –        –
+  bias20ma   (  0 pp,  +20 mA)        1.33/0.90  1.55/1.93 3.39/3.31 1.32/1.63
+  init30     (−30 pp,    0 mA)       25.37/28.68 3.89/3.31 4.18/3.81 2.95/3.11
+  hard       (−30 pp,  +20 mA)       24.65/27.86 2.23/2.88 3.14/3.21 1.79/1.72
+```
+
+**部署滤波器之前值得先知道的四件事：**
+
+1. **模型误差才是地板，不是滤波器。** 初值完美、电流传感器完美时，EKF 仍有 2.62 pp，而纯库仑计数只有 0.01 pp——库仑计数从不看模型。滤波器的职责不是"准"，而是**阻止模型误差变成 SOC 误差**。
+2. **滤波器唯一买到的是"初值错了"。** −30 pp 时 EKF 比库仑计数好 8.7×；但 20 mA 电流偏置下，普通库仑计数（0.90 pp）**打败** EKF（1.93 pp）。分流器好，积分很难输。
+3. **AEKF 一致地赢**（全程 1.63–3.11 pp，尾段 1.32–2.95 pp），`hard` 场景 92% 工况 60 s 内收敛（EKF 50%、UKF 21%）。但 `init30`（只有初值误差）上只比 EKF 好 0.2 pp——**自适应量测噪声修的是偏置，不是初始化**。
+4. **UKF 没有系统性优势**：修掉两个真实 bug 之后（见《UKF 为什么没有优势》），它在三个可比场景都略差于 EKF。修完才值得发表对比。
+
+---
+
+## 数据
+
+| 数据集 | 角色 | 许可 | 位置 |
+|---|---|---|---|
+| Panasonic 18650PF（Kollmeyer, McMaster/UW-Madison） | 主基准：NCA，24 条行车工况，5 个温度组，HPPC | CC BY 4.0 | `PANASONIC_ROOT`（Mendeley doi 10.17632/wykht8y7tg.1） |
+| CALCE A123 26650（UMD） | 跨化学体系迁移：LFP 老化至 ~45% SOH，24 段，−10…50 °C | 公开（UMD） | `CALCE_ROOT`（A123_*.zip） |
+
+两者都从本地路径读取（`src/bmsoc/io_panasonic.py`、`scripts/10_calce_prepare.py`）；测试永远不需要数据集。
+
 ## 特性
 
-- **四个估计器一个接口**：`CoulombCounter / EKF / UKF / AEKF`，统一
-  `run(profile) -> dict[str, ndarray]`。预测/量测方程完全相同，比较才有意义。
-- **第 4 个状态 = 电压偏置**：持续性的模型偏差（这批数据上 20–50 mV）在线估计，
-  而不是被算成 SOC 误差。仅这一条就把 `known` 地板从 3.87 pp 降到 2.15 pp。
-- **温度感知的 OCV**：`OCV(SOC, T)`，逐样本用实测电芯温度——这批测试是**边降温边跑**的，
-  30 K 的温漂用单温度表会差几十毫伏。
-- **SOC ∈ [0,1] 之外按端点斜率线性外推**：UKF 必须这样，EKF 无所谓。
-- **留一工况标定** + **四个压力场景**，而不是一个好看的单一数字。
-- **154 项单元测试全部用合成数据**，CI 里不需要数据集（Python 3.10 + 3.12）。
+- **四个估计器一个接口**——`CoulombCounter`、`EKF`、`UKF`、`AEKF`，都是 `run(profile) -> dict of arrays`。预测/量测模型相同，对比是诚实的。
+- **第 4 状态 = 电压偏置。** 持续模型偏移（本数据 20–50 mV）在线估计而不是被 SOC 吸收。仅此一项把 `known` 地板从 3.87 → 2.15 pp。
+- **温度感知 OCV。** `OCV(SOC, T)` 逐步用实测电芯温度——这些测试在行车中降温 30 K，单温度表会差几十 mV。
+- **SOC ∈ [0,1] 之外线性外推**——UKF 必需，对 EKF 无害（见《UKF 为什么没有优势》）。
+- **留一工况标定** + **四个压力场景**，而不是一个好看的数字。
+- **154 项单元测试全部用合成数据**——CI 里不需要数据集（Python 3.10 + 3.12）。
 
 ## 结果
 
 ### 标定质量（留一工况，24 折）
 
-| 温度 | 被留出工况上的开环电压 RMSE | 中位数 |
+| 温度 | 留出工况上的开环电压 RMSE | 中位数 |
 |---|---|---|
 | 25 °C | 17.3 – 48.7 mV | 27.5 mV |
 | 10 °C | 29.1 – 74.1 mV | 40.7 mV |
@@ -54,187 +73,70 @@
 | −10 °C | 39.8 – 111.6 mV | 59.1 mV |
 | −20 °C | 77.9 – 196.8 mV | 98.6 mV |
 
-中位数 **52.6 mV**，P90 **99.8 mV**。每折拟合 6 个电气参数；OCV 表**从不**参与重拟合
-（只来自 HPPC 静置），所以这是真正的工况外测试。五个温度的最差折全是 US06
-（电流最激烈的工况）。
+中位数 **52.6 mV**，P90 **99.8 mV**。每折拟合 6 个电气参数；OCV 表**从不**参与重拟合（只来自 HPPC 静置段），所以这是真正的工况外测试。每个温度下最差的折都是 US06——最激进的电流工况。
 
 ### SOC 精度
 
-完整表（含收敛占比与 P90）见 `reports/基准评测报告-A4.md` §7。
-最难场景（`hard`：−30 pp 初值 + 20 mA 偏置）的分温度中位数：
+含收敛占比与 P90 的完整表见 `reports/基准评测报告-A4.md` §7。最难场景（`hard`：−30 pp 初值 + 20 mA 偏置）的分温度中位数：
 
 | | −20 °C | −10 °C | 0 °C | 10 °C | 25 °C |
 |---|---|---|---|---|---|
-| 库仑计数 | 29.07 | 28.35 | 27.48 | 27.76 | 27.53 |
+| CC | 29.07 | 28.35 | 27.48 | 27.76 | 27.53 |
 | EKF | 1.76 | 3.23 | 2.35 | 4.06 | 2.48 |
 | UKF | 5.16 | 3.34 | 3.23 | 3.19 | 2.68 |
 | AEKF | 1.71 | **1.31** | **1.21** | **2.91** | 2.61 |
 
-温度的影响**不是单调的**：10 °C 最差（EKF 4.06 pp），因为 10 °C 的文件实测温度从
-23.7 °C 一路降到 12 °C、跨度最大，而折参数是单温度拟合的；且该温度下 5 条工况
-**全部**落在 3.4–4.3 pp，是系统性偏差而不是离群点。**精度由「模型误差 ÷ OCV 斜率」决定，
-但这两项在低温是同向放大的，所以低温不一定更容易。**
+温度依赖**非单调**：10 °C 最差（EKF 4.06 pp），因为 10 °C 文件从 23.7 °C 降到 12 °C——跨度最大——而折参数按单温度拟合。且 10 °C 下**五条**工况都落在 3.4–4.3 pp，是系统性偏移不是野点。**精度由模型误差 ÷ OCV 斜率决定——两者在低温一起变大，所以低温不自动变容易。**
 
-图在 `docs/figures/`：OCV 表与可观测性、留一残差、SOC 轨迹、误差分布、偏置状态收敛、
-敏感性、误差 CDF。
+<p align="center">
+  <img src="docs/figures/error_summary.png" width="620" alt="各场景各估计器误差汇总">
+</p>
+
+图集：`docs/figures/`——OCV 表与可观测性、LOO 残差、SOC 跟踪、误差分布、偏置状态收敛、敏感性、误差 CDF。
 
 ### 跨化学体系：LFP（CALCE A123）
 
-同一套估计器、同一套超参数、同一套四场景，**一行不改**地跑第二个数据集 ——
-24 段工况、8 个温度档（−10…50 °C），只有数据层换掉。全文见
-`reports/基准评测报告-A4.md` §10。
+同一套估计器、同一组超参、同样四个场景，**原封不动**跑在第二个数据集上——24 段、8 个温度（−10…50 °C），只换数据层。完整章节见 `reports/基准评测报告-A4.md` §10。
 
-| 场景 | 库仑计数 | EKF | UKF | AEKF |
+| 场景 | cc | EKF | UKF | AEKF |
 |---|---|---|---|---|
-| `known`（0, 0 A） | 0.01 | **0.24** | – | – |
+| `known` (0, 0 A) | 0.01 | **0.24** | – | – |
 | `bias20ma` | 2.16 | 1.96 | 1.87 | 1.95 |
 | `init30` | 28.13 | 0.99 | **0.56** | 1.10 |
 | `hard` | 26.90 | 1.35 | 1.98 | **1.29** |
 
-LFP **并不更难**（0.2–2.0 pp，NCA 是 2.6–3.3 pp），而且原因可测：
+LFP 在这里**并不更难**（0.2–2.0 pp vs NCA 的 2.6–3.3 pp），原因可测而非侥幸：
 
-- 这批工况每段都从 100 % SOC 起步，恰好是 LFP 曲线最陡的地方（30 pp ↔ 285 mV）；
-- 平台区的 SOC 增益极小 —— `K_soc` 0.0002，NCA 是 0.0046（差 23 倍），
-  所以模型误差和 OCV 表误差都推不动估计值。
+- 每段从 100% SOC 起步，那里 LFP 曲线陡（30 pp ↔ 285 mV）；
+- 平台区的 SOC 增益极小——`K_soc` 0.0002 vs NCA 的 0.0046，23×——所以模型误差和 OCV 表误差都推不动估计值。
 
-真正咬人的是**容量（增益）误差**，两个体系都一样：5 % ⇒ 2–4.5 pp、10 % ⇒ 5–7.4 pp，
-且没有任何滤波器状态能吸收它。相比之下 ±40 mV 的 OCV 表误差（常值或随 SOC 变形）
-只值 ≤0.6 pp —— 因为偏置状态把它吸掉了。
-
-### 两个压力测试（v1.2）：上面这张表有前提
-
-**中段上电。** 上面的基准每段都从满电（100 % SOC）起步 —— 恰好是 LFP 最陡的区段。
-把每段从真值 SOC 0.7 / 0.5 / 0.3 处切开再跑（`slice_from_soc`），结论完全变了：
-LFP 的 `init30` 从 0.56–1.10 pp 恶化到 **12–36 pp**（NCA：3.3 → 10–25 pp）。
-即使初值**正确**（`known`）误差也涨 2–3 倍 —— 这是平台上电的纯可观测性地板。
-更麻烦的是不对称：估计**偏高** 30 pp 比偏低难救约 2 倍（LFP 起点 0.5：30.8 vs 14.0 pp），
-且这批运行几乎永远进不了 5 pp 带（占比 0–5 %）。结论：「LFP 并不更难」是
-**满电起步**的性质，不是化学体系的性质。真实 BMS 更多是在平台上醒来，不是在满电。
-
-**容量在线辨识。** 容量误差的增长律精确成立：`err_end = −(1/s−1)(1−SOC_end)` ——
-24 段 × 5 个容量比逐点验证（中位偏差 0.05 pp）。那么把容量建成滤波器第 5 个状态
-（`EKFQ`）应该能纠回来。合成数据上确实能（10 % 误差收回 ±2 %）。**真实数据上
-反而更差**：12 pp vs 2.6 pp —— 38–53 mV 的模型残差与容量漂移在电压上不可区分，
-全被吸进 `q`（真实容量正确时 q 也漂 −3 到 −6 %）。超参扫描证实是结构性的。
-结论：容量必须来自**外部锚点**（SOH 估计，A2），不能从单段放电里辨识。
-
-**老化耦合与外部 SOH 锚点（v1.3）。** 锚点现在是代码接口（`SoHSchedule`：`Q̂(t)`/`R̂0(t)`
-分段常值、刷新之间零阶保持），且所需质量被量化。容量误差增长律**精确**推广到时变容量
-（`err(k) = Σ(1/q̂ − 1/q_true)·i·dt/3600`，逐点验证缺口 0.000000 pp）。A2 的规格落成两个数：
-**SOH 偏置 ≤ ±2 %**、**staleness（走速 × 刷新周期）≤ 4 %** —— 不刷新的 SOH 估计以 0.18 %/h
-漂走时，2 h 深放段值 13.8 pp；5 min 刷新就钳回地板（`err_end ≈ (ε + δ/2)·DOD`）。刷新只修正
-积分**速率**，已积累的误差需要 SOC 参照点事件（满充/静置 OCV）才能重算。内阻老化在 NCA 上
-不可忽略（R̂0 翻倍 ⇒ +8.2 pp；LFP 只 +1.4）且不对称：低估 R0 便宜，高估不便宜。
-
-**残差解剖与 EKFQ 复验（v1.4）。** 把 38–53 mV 残差拆开逐条机制判决，事前 4 条假设
-**3 条被数据正面否掉**：充放滞后只值 4.7 mV；加第三条 RC 与电流内阻项只换 0–1.9%
-（参数顶界是「模型族错了」的症状，不是阶数不够）；慢残差不是极化也不是热效应（R²≈0.05）。
-LFP 的真凶是 **OCV 曲线的 SOC 形状误差** —— 训练折残差→ΔOCV(soc) 严格 LOO 灌回留出折，
-残差 37.4 → 17.6 mV（形状幅度 185 mV，老化后平台形状变了，C/20 静置看不见；
-`bmsoc.ocv.ShapeCorrected` 已实现含导数修正）。NCA 的残差是**冷温大功率分布外外推**
-（US06 −20 °C 到 242 mV），留在 41.7 mV。合成台架扫出 **EKFQ 可行性阈值：慢变残差 ≤ 20 mV**
-（q̂ 误差每 10 mV 线性走 +0.25%）。真实复验：修正后 LFP 模型下，容量**高估** 5% 时
-EKFQ 1.63 pp **反超** EKF 2.44 pp（q 收敛率 46%）；NCA 负结果原封不动（7.7–10.6 vs
-2.3–4.5 pp）。v1.2 的「EKFQ 不行」应改读为「**残差 > 20 mV 时 EKFQ 不行**」——
-条件性工具（低残差 + 高估侧），**外部锚点仍是默认路线**。
-
-**残差二压与热失配判决（v1.5）。** 两条深化路线走到头，机制再次反转：① **BV 饱和是真的**
-—— HPPC 组内起点电阻随倍率单调收缩（−20 °C 10 A 时表观电阻只剩 59%），但用饱和形状
-做**静态**修正不转移（LOO 残差 42.1 → 45.0 mV，更差）；跨温度全局 Δ(soc) 也被否
-（21.8 vs 同温度 18.1 mV）。② 静态修正不转移的真凶：us06 −20 的电芯实测温度摆
-**20 K**，残差 ~ 2.54 mV/(K·A)·dT·i（R²=0.66）—— **冷温大功率残差的主体是自热
-导致的参数温度失配**，不是「分布外外推」本身。逐样本 R(T_meas) 修正把 us06 −20
-从 181 压到 **74.6 mV**、真实复验 **EKF 中位 3.21 → 2.39 pp（−26%）**；但全折
-残差中位 42 纹丝不动（冷温小电流的 OCV 基准地板是另一台机器）。边界按残差结构
-分层后阈值修订：**慢/偶型 ≤20–30 mV，奇型（∝ i，热失配的签名）≤10–15 mV** ——
-奇型残差与电流同号共长、灌进 q 的速率是慢漂移的 4 倍，NCA 的 EKFQ 死亡由此
-从结构侧再获解释。LFP 无逐样本温度数据，17.6 mV 与条件性结论维持。
-
-**冷温小电流地板的结构解剖（v1.6）。** 「0–1 A 也 42 mV」是 NCA 残差中位的最大头，
-热修正不碰它。本轮先按物理状态拆口径：−20 °C 上电起始静置段 e ≈ dv ≈ −122 mV
-且 **300 s 内恒定不衰减**（不是暂态），剥掉 dv 后表顶点与实测静置只差 +4.4 mV——
-低电流 SSE 的 34% 是**常值-dv 的 regime 混合伪影**（开环口径才有）；工况尾段
-300 s 静置明显未歇透（还在以 +68 mV/300s 回升，残余极化 u_res ≈ +57 mV）——
-11% 是**状态**，滤波器可吸收；剩下的 55% 才是真动态地板（45.9 mV）。事前登记
-判决：**H20「OCV 表不自洽是地板来源」被否**（已歇透表差 ≤13.5 mV、尾段平衡表差
-区间 [−50,+30] 含 0、合成对照回收 20 mV 注入偏到 2 mV）；**H21「dv regime 混合 +
-未收敛」部分成立**（Δdv −142 mV @ −20 vs −13 @ 25 冷温特有实锤；净值移除份额
-18% 未过 30% 线）；**H22「动态残差有共享结构」被否**（同温 LOO：u 核 −10%、
-偏置+形状 +1%——v1.4 的逐温度静态修正在 NCA 冷温不转移）。结论一句话：
-**开环地板 ≠ 滤波器地板**，进滤波器预算的只有那 55%。尾段外推必须约束-τ
-（自由-τ 偏 ±26 mV，双模态合成对照把约束估计器定在 1.6 mV）。
-
-**滤波后残差口径的 EKFQ 复验（v1.7）。** 把 EKFQ 可行性问题换到**滤波后残差**
-（EKF 的 u/b 状态吸收后剩给 q 的 innovation）口径重做。状态吸收 33% @ −20 °C；
-滤波后残差几乎没有慢/偶/常值成分（slow ≤4.6 mV——**v1.2「慢变残差 >20 mV」的
-前提不适用于滤波口径**，H23 成立），主体是 **white/快变非线性（29–64 mV @ −20）
-+ 冷温超线的奇型（23.4 mV 中位，∝ i）**。零残差合成植物上的选择性注入台架给出
-通道判决：**H24「奇型是主通道」被否**（只注奇型收敛 38%——冷温次通道；只注慢变
-100% 无害）；**H25「white 是主通道」部分成立**（只注 white 收敛 0% 全灭；剥掉
-white 只救回 50%）。实测滤波后残差整段 replay 完全复现真实失败（q̂ +38.6%、
-SOC 16.1 pp），零残差对照 100% 收敛——**失败边界在残差结构，不在驱动剖面、
-DOD（0.87–0.98）或实现**。滤波后口径的新边界：**white ≤ ~10 mV、odd ≤ ~5–10 mV**；
-NCA 无一折进入可行区，「EKFQ 在 NCA 不行」的判词维持、理由更新。方向签名交叉
-验证通道：white 把 q 推向上、odd 拉向下，与真实数据的暖/冷温漂移方向一致。
-
-**white 的物理定性（v1.8）。** 合成正对照先标定探针检出力（纯噪声全平坦；已知
-快 RC 靠 ACF1=0.92 检出；慢滞回被 slow 滤掉、进不了 white）。判决：**H26「快极化
-动力学缺失」成立**（ACF1 +0.60、didt 比 3.33、边沿比 1.77 @ −20；残差化快 RC
-（τ=5 s）回归 R² 0.38、RMS 削减 21%）；**H27「充放滞回」弱过线**（仅 10 °C 充放
-比 1.39，ρ(hyst) 全温 ≤0.07）；**H28「测量噪声」被否**（有记忆 + di/dt 集中 +
-excess kurtosis +7.7~+30.3 重尾）。物理身份：**驱动电流是 ~0.5 A/s 斜坡不是阶跃，
-斜坡段表观 Δv/Δi 达 150–300 mV/A = 稳态 r0 的 2–2.4 倍**——white 是斜坡/边沿处
-建立的快极化缺失（τ≈5–10 s），冷温放大。模型族出口从「滞回/扩散态」细化为
-「**快极化支路 + 采样对齐**」（单快 RC 只削 21%）；滤波器侧对症重尾灌 q 的是
-innovation 鲁棒化（Huber/限幅，待测）。
-
-**快支路出口的实测边界（v1.9）。** 把 v1.8 的出口做成实测，三假设三判决。
-**H29「快支路压 white」被否**：模型级 3rc_fast（tau3 钉快端）LOO 重拟合削减
-**严格 0%**（tau3 冷温塌到 0.5–1 s 下界退化成拟 r0；慢端对照也只有 2%），
-结构级 LOO-τ 削减 0.1489 **贴线未过** 0.15 线，且 β 符号折间翻转（−68~+42 mV/A）
-——快分量幅度是折特异结构、不是共享物理支路。**H30「EKFQ 联动」部分成立**：
-快成分充分毒（只注收敛 25%）但不是主量（只灌 q̂ +3.4%，full +35.5%）；剥掉后
-收敛率仅回 25%、refit 路线 0%。**H31「v/i 采样对齐」被否**：i 平移 RMSE 扫描
-（合成对照过检出力）δ̂ 全部亚样本（−0.24~−0.50，与 i 通道 1 s 平均窗方向一致）。
-定性修订：**white 的主体不是缺失快 RC**（折内 oracle 也只有 20%）——机制归属
-转向折特异非 RC 结构/BV 传质瞬态。
-
-**white 重尾的滤波器侧对症（v1.10）。** 鲁棒 EKFQ（innovation clip/huber/gate）
-实测三判决。尾部统计：滤波后残差 kurt 6.5–29.3、3σ 尾能份额 **35–52%**（高斯
-2.9%）——重尾是能量的三分之一到一半。**H32 部分成立**：gate3 的 |q̂| 中位
-相对下降 **84%**、SOC 比 0.19、零残差对照 100%，但 q_ok 最高 25% 贴线未达
-30%；剂量非单调（κ=2 优于 κ=3/5）。**H33 成立**：剥 white 5% 重尾减毒 27%、
-同方差高斯化减毒 **64%**——毒在重尾形状而非方差。**H34 被否（护栏）**：真实
-数据 |q̂| 中位降 23%、SOC 中位改善 6%，但**单折 SOC +400%**（灾难折全在
-cap_scale=0.95——鲁棒把容量修正所需的持续新息一并裁掉，q 跑飞）。定性修订：
-**鲁棒 EKFQ 降为条件出口**（不能无差别全开）；下一步 q 通道专用保护/自适应
-κ/Student-t 量测。
-
-## 安装
-
-```bash
-git clone <this-repo> && cd SOC在线估计-A4
-python -m venv .venv && .venv/Scripts/pip install -r requirements.txt   # Windows
-# numpy pandas pyarrow scipy openpyxl matplotlib pytest
-```
-
-数据集从环境变量 `PANASONIC_ROOT` 读（缺省值见 `src/bmsoc/io_panasonic.py`）。
+两种化学体系上真正咬人的是**容量**误差：5 % → 2–4.5 pp，10 % → 5–7.4 pp，且增益型误差没有任何滤波器状态能吸收。相比之下 ±40 mV 的 OCV 表误差（常数或 SOC 形状）只花 ≤ 0.6 pp——偏置状态吸收了它。
 
 ## 快速开始
 
+```bash
+git clone https://github.com/ilo-love7/battery-soc-ekf-ukf.git
+cd battery-soc-ekf-ukf
+python -m venv .venv && .venv/Scripts/pip install -r requirements.txt   # Windows
+# numpy pandas pyarrow scipy openpyxl matplotlib pytest
+
+python -m pytest tests -q                        # 154 项，不需要数据集
+```
+
 ```python
 import sys; sys.path.insert(0, "src")
-import numpy as np
+import numpy as np, pandas as pd
 from bmsoc.ecm import RCParams
 from bmsoc.filters import EKF, AEKF, FilterConfig
-from bmsoc.ocv import OCV2D, OCVTable, from_rest_points
+from bmsoc.ocv import OCV2D, OCVCurve, OCVTable, from_rest_points
 from bmsoc.profiles import DrivingProfile
 
 # 1) OCV 表（也可以直接读 results/metrics/ocv_panasonic.json）
 soc = np.linspace(0, 1, 11)
-ocv2d = OCV2D(OCVTable({25.0: from_rest_points(soc, 3.1 + 1.0 * soc, temp_c=25.0)}))
+curve = from_rest_points(soc, 3.1 + 1.0 * soc, temp_c=25.0)
+ocv2d = OCV2D(OCVTable({25.0: curve}))
 
-# 2) 工况：t_s / current_a / voltage_v / temp_c / soc_ref / capacity_ah
+# 2) 行车工况：t_s / current_a / voltage_v / temp_c / soc_ref / capacity_ah
 prof = DrivingProfile(t_s=np.arange(n) * 1.0, current_a=i, voltage_v=v,
                       temp_c=np.full(n, 25.0), soc_ref=soc_ref, capacity_ah=2.77)
 
@@ -248,18 +150,16 @@ out["soc_hat"], out["bias_hat"], out["sigma_soc"]
 
 ## 用你自己的数据
 
-只需要一个 `DrivingProfile`。`bmsoc.profiles.build_profile(t_s, current_a, voltage_v, temp_c,
-capacity_ah, soc0=1.0, dt=1.0)` 会把任意不规则日志重采样到固定步长，并用库仑计数构造真值 SOC。
+只需要一个 `DrivingProfile`。`bmsoc.profiles.build_profile(t_s, current_a, voltage_v, temp_c, capacity_ah, soc0=1.0, dt=1.0)` 把任意不规则日志重采样到固定网格，并用库仑计数构造参考 SOC。
 
-**符号约定：充电为正、放电为负。** 如果你的记录仪相反，要把电流*和* OCV 曲线方向一起翻，
-否则滤波器会「稳健地」收敛到错误答案。
+**符号约定：充电为正、放电为负。** 如果你的记录仪反过来，把电流**和** OCV 曲线方向一起翻过来，否则滤波器会开心地收敛到垃圾值。
 
 ## 方法要点
 
 ```
 HPPC 脉冲 ──► OCV(SOC,T) ─┐
-                          ├──► 二阶 RC 参数 ──► 留一标定 ──► 滤波器 ──► SOC
-动态工况   ────────────────┘  （ECM-RUL 项目的方法） （本项目）  （本项目）
+                          ├──► 2-RC 参数 ──► 留一标定 ──► 滤波器 ──► SOC
+行车工况 ──────────────────┘  (ECM-RUL 项目)     (本仓库)     (本仓库)
 ```
 
 状态 `x = [soc, u1, u2, b]`：
@@ -270,62 +170,34 @@ u_j[k+1] = e_j·u_j[k] + R_j(1−e_j)·i[k],   e_j = exp(−Δt/τ_j)
 V[k]     = OCV(soc[k], T[k]) + u1[k] + u2[k] + R0·i[k] + dv + b[k]
 ```
 
-OCV 来自 HPPC 静置末电压，PAVA 保序单调化，再做一次**残差目标 1.5 mV 的平滑**。
-平滑不是为了好看：HPPC 每个 SOC 档有 5 个脉冲、SOC 只差 0.005，静置末电压只差 0.6–8 mV
-——这是重复测量而不是斜率。−20 °C 下 35 个点里 25 对相邻点电压**完全相同**
-（记录分辨率 0.1 mV），PAVA 之后整段成了阶梯，PCHIP 穿过阶梯会让 `dOCV/dSOC`
-在 **0.00–2.91 V/unit** 之间乱跳（阶梯间斜率为 0，意味着卡尔曼增益为 0，滤波器停更）；
-平滑后是 **0.43–2.95**，中位/最小从 10⁵ 收到 2.1。
+OCV 来自 HPPC 静置末端电压，PAVA 单调化后**以 1.5 mV 残差目标平滑**。平滑不是化妆：每个 HPPC SOC 级贡献 5 个几乎同 SOC（相差 0.005）的脉冲，其静置末端电压只差 0.6–8 mV——是重复测量不是斜率。−20 °C 时 35 对相邻点里 25 对*完全相同*（记录仪 0.1 mV 分辨率），PAVA 把曲线变成阶梯，PCHIP 过它让 `dOCV/dSOC` 在 **0.00 ~ 2.91 V/unit** 间振荡（阶梯间平坦 = 零卡尔曼增益——滤波器直接停止更新）。平滑后：**0.43–2.95**，中位/最小比从 10⁵ 降到 2.1。
 
-RC 参数用**变量投影**辨识（τ 走格点、`[R0,R1,R2]` 用 NNLS），并且把**同一 SOC 档的
-5 个倍率脉冲联合**求解——单个 10 s 脉冲分不开两个时间常数（实测 `τ2` 顶到 5000 s 上界、
-`τ1` 在 5–67 s 乱跳）。
+RC 参数用**变量投影**辨识（τ 网格搜索，`[R0,R1,R2]` 用 NNLS），每个 SOC 级叠 **5 个倍率**——单个 10 s 脉冲分不开两个时间常数（`τ2` 顶在 5000 s 边界，`τ1` 在 5–67 s 乱跳）。
 
 ## 这批数据里的三个坑
 
-**1. 重采样把 55% 的电压样本填错了。**
-低温文件开头有 2 h 温箱静置、采样间隔 60 s；重采样到 1 s 后每 60 个区间里 59 个是空的，
-而填充逻辑用的是**全部有效电压的均值**而不是前值。4.17 V 的静置电压被灌成 3.47 V，
-12850 个样本里 7080 个错，EKF 直接发散到 86.9 pp。改成零阶保持后同一工况 1.77 pp，
-`known` 地板从 7.05 降到 2.62 pp。回归测试：
-`tests/test_profiles.py::test_resample_holds_value_across_sparse_gaps`。
+**1. 重采样把 55% 的电压样本填成了错值。** 低温文件以 60 s 记录的 2 h 温箱静置开头。重采样到 1 s 后每 60 个格子空 59 个，填充逻辑用了*全部有效电压的均值*而不是前值。4.17 V 的静置在 12850 个样本里的 7080 个变成了 3.47 V，EKF 发散到 86.9 pp。改成零阶保持后同一条工况 1.77 pp，`known` 地板从 7.05 → 2.62 pp。回归测试：`tests/test_profiles.py::test_resample_holds_value_across_sparse_gaps`。
 
-**2. 标称温度不是电芯温度。** 10 °C 组实测 23.7 → 12 °C，−20 °C 组 16.1 → −16.3 °C。
-所以 OCV 必须做成 `OCV(SOC, T)` 并按实测温度逐样本查表。
+**2. 标称温度不是电芯温度。** 10 °C 组从 23.7 → 12 °C；−20 °C 组从 16.1 → −16.3 °C。所以 `OCV(SOC, T)` 每步都用实测电芯温度查表。
 
-**3. 容量基准必须同源。** OCV 的 SOC 轴与真值 SOC 必须用同一个 `Q_ref`
-（HPPC 一次完整放电：25/10/0/−10/−20 °C → 2.773 / 2.622 / 2.476 / 2.330 / 2.182 Ah）。
-两者不一致会凭空造出 133 mV 的「模型误差」。
-
-另外：每段工况开头的静置只保留 300 s。修复坑 1 之后静置段占样本数 55%，
-留着会把 RMSE 稀释成「静置有多准」。
+**3. 容量基准必须统一。** OCV 的 SOC 轴和参考 SOC 必须用同一个 `Q_ref`（HPPC 全放电：25/10/0/−10/−20 °C 分别 2.773 / 2.622 / 2.476 / 2.330 / 2.182 Ah）。混用会产生 133 mV 的"模型误差"，纯属记账问题。另外：工况裁剪为最多保留 300 s 前置静置，否则 55% 样本的平坦浸泡会稀释每一个 RMSE。
 
 ## UKF 为什么没有优势
 
-两个真 bug，自己实现 UKF 的人值得看一眼。
+两个真实 bug，自己实现 UKF 都值得知道。
 
-**（a）`wm[0] = 0` 但 `wc[0] = β = 2`。**
-`alpha=1, kappa=0, n=4` 时 `λ = 0`，中心 sigma 点在均值里权重为 0、在协方差里权重为 2。
-线性量测下这一项自动抵消（`dY[0] = 0`，单元测试 `test_ukf_equals_ekf_for_linear_measurement`
-用默认 `β=2` 也通过）；非线性量测下 `dY[0]` **就是**无迹变换的均值偏差，
-`wc[0]·dY[0]²` 会把 `S` 灌大：
+**(a) `wm[0] = 0` 但 `wc[0] = β = 2`。** `alpha=1, kappa=0, n=4` 时 `λ = 0`，中心 sigma 点在均值里权重 0、协方差里权重 2。线性量测下相互抵消；非线性时 `dY[0]` *就是*无迹变换的均值偏置，`wc[0]·dY[0]²` 撑大 `S`：
 
 | SOC | σ=0.05 | σ=0.20 | σ=0.30 |
 |---|---|---|---|
 | 0.50 | +1.4 mV | +9.4 mV | +10.8 mV |
 | 0.90 | −1.1 mV | +13.5 mV | **+26.5 mV** |
 
-σ=0.30 时 `2·0.027² = 1.5e-3`，而 `R = 1e-4`：`S` 被抬约 15 倍，增益被压掉一个量级。
-这足以让 UKF 变钝，但**不足以**造成 60 pp 的错误。它不是本次的主因。
+σ=0.30 时是 `2·0.027² = 1.5e-3` 对 `R = 1e-4`：`S` 撑大 ~15×，增益压低一个量级。足以让 UKF 变钝，**不足以**解释 60 pp 的误差。设 `β=0` 对 `init30` 有帮助（62 → 36 pp）但对 `known` 没有。它不是这里的主因。
 
-**（b）OCV 表在 SOC ∈ [0,1] 之外被夹紧（主因）。**
-μ=1.0、σ=0.05 时有一半 sigma 点越过 1，`OCV` 被夹成常数，于是
-`E[OCV(soc)] < OCV(1.0)`，新息恒为正，SOC 被一路推到 `1.05` 限幅；到 SOC≈0 时对称反向，
-被推下 `−0.05`。撞在轨上之后夹紧区间内 `dOCV/dSOC = 0`，雅可比消失，**从「推错」变成「推不动」**
-——一条离开真值的棘轮。EKF 只在 μ 处求导，完全看不见这个夹紧。
-改成**按端点斜率线性外推**后（同一 OCV 表、同一折参数、同一噪声种子）：
+**(b) OCV 表在 SOC ∈ [0,1] 之外被钳位——真正的元凶。** μ=1.0、σ=0.05 时一半 sigma 点落在 1 之外，那里 `OCV` 被钳位，于是 `E[OCV(soc)] < OCV(1.0)`；新息持续为正，估计被推进 `1.05` 裁剪。SOC ≈ 0 处效应反向。一旦上轨，钳位区内的 `dOCV/dSOC` 为 0——雅可比消失，状态从*被推错*变成*动不了*：棘轮式远离真值。EKF 只在 μ 处求导，从未察觉。修复：**按边缘斜率线性外推**（同 OCV 表、同折参数、同噪声种子）：
 
-| 工况 | 场景 | 夹紧（修复前） | 外推（修复后） | EKF |
+| 工况 | 场景 | 钳位（修前） | 外推（修后） | EKF |
 |---|---|---|---|---|
 | −20 °C NN | known | 58.97 | **2.19** | 3.52 |
 | −20 °C NN | init30 | 62.21 | **2.56** | 2.58 |
@@ -334,139 +206,123 @@ RC 参数用**变量投影**辨识（τ 走格点、`[R0,R1,R2]` 用 NNLS），�
 
 复现：`python scripts/07_ukf_clip_ab.py`。
 
-> UKF 的卖点是「不用求导」，代价是对量测函数的**全局形状**敏感。OCV 表这种
-> 「局部光滑、边界硬夹紧」的函数上，EKF 反而更稳。要用 UKF，必须保证 `h` 在整个
-> sigma 支撑集上光滑、无夹紧。
+> UKF 的卖点是"不用雅可比"，代价是对量测函数*全局*形状敏感。在 OCV 表上——局部平滑、边界硬钳位——EKF 就是更稳健。用 UKF 就让 `h` 在整个 sigma 支撑上平滑。
 
 ## 复现完整流程
 
 ```bash
 export PANASONIC_ROOT=".../Panasonic_18650PF"
 python scripts/00_recon_data.py --which pan      # 数据勘察
-python scripts/02_identify_ocv_ecm.py            # HPPC → OCV + RC 参数
+python scripts/02_identify_ocv_ecm.py            # HPPC 辨识 OCV + RC
 python scripts/03_fit_ecm_cycle.py --dt 2        # 留一标定，约 40 s
 python scripts/04_benchmark_soc.py --dt 1        # 24 工况 × 4 场景，约 9 min
 python scripts/05_sensitivity.py --dt 1          # 初值/偏置/噪声扫描，约 20 min
 python scripts/06_figures.py                     # docs/figures/*.png
 
-# LFP（CALCE A123）：需要 CALCE_ROOT 指向 A123_*.zip 所在目录
-python scripts/10_calce_prepare.py               # C/20 OCV + 24 段留一标定，约 5 s
+# LFP（CALCE A123）—— CALCE_ROOT 指向 A123_*.zip 所在目录
+python scripts/10_calce_prepare.py               # C/20 OCV + 24 留一折，约 5 s
 python scripts/11_calce_benchmark.py --dt 1      # 24 段 × 4 场景，约 7 min
-python scripts/12_calibration_stress.py --dataset calce      # 标定容差，约 7 min
-python scripts/12_calibration_stress.py --dataset panasonic  # 同上（对照），约 8 min
-python scripts/13_calce_figures.py               # 三张跨体系图
+python scripts/12_calibration_stress.py --dataset calce      # 标定余量，约 7 min
+python scripts/12_calibration_stress.py --dataset panasonic  # NCA 同款探针，约 8 min
+python scripts/13_calce_figures.py               # 三张跨化学体系图
 
-# 压力测试（v1.2）：中段上电 + 容量误差预算
+# v1.2–v1.10 深化轮次——见下方"再往深处"
 python scripts/14_mid_soc_stress.py --dataset calce       # 约 7 min
-python scripts/14_mid_soc_stress.py --dataset panasonic   # 约 9 min
-python scripts/15_capacity_q.py --dataset calce           # 约 5 min
 python scripts/15_capacity_q.py --dataset panasonic       # 约 6 min
-python scripts/16_round3_figures.py                       # 两张压力测试图
-
-# 老化耦合（v1.3）：外部 SOH 锚点（R0 耦合 / 锚点漂移 / 时变老化植物）
-python scripts/17_aging_anchor.py --dataset calce         # 三个子实验，约 13 min
-python scripts/17_aging_anchor.py --dataset panasonic     # 约 17 min
-python scripts/18_round4_figures.py                       # 两张老化图
-
-# 残差解剖（v1.4）：四维摸底 / 模型升级+ΔOCV / EKFQ 边界与复验
-python scripts/19_residual_autopsy.py                     # 约 3 min
-python scripts/20_model_upgrade.py --stage variants       # 4 变体 × LOO，约 12 min
-python scripts/20_model_upgrade.py --stage docv           # ΔOCV 判决实验，约 5 min
-python scripts/21_ekfq_boundary.py                        # 合成边界 + 真实复验，约 8 min
-python scripts/22_round5_figures.py                       # 四张第五轮图
-
-# 残差二压（v1.5）：HPPC 饱和 / Δ(i) 判决 / 全局Δ(soc) / 热修正 / 边界细化
-python scripts/23_residual_round2.py --stage hppc         # 组内起点电阻饱和，约 1 min
-python scripts/23_residual_round2.py --stage di --dataset panasonic   # Δ(i) 判决，约 1 min
-python scripts/23_residual_round2.py --stage di --dataset calce
-python scripts/23_residual_round2.py --stage dst --dataset calce      # 全局Δ(soc)，约 1 min
-python scripts/23_residual_round2.py --stage therm --dataset panasonic  # 热修正判决，约 1 min
-python scripts/24_ekfq_boundary2.py --stage a             # 残差结构边界，约 12 min
-python scripts/24_ekfq_boundary2.py --stage b --dataset panasonic     # 热修正复验，约 6 min
-python scripts/25_round6_figures.py                       # 四张第六轮图
-
-# 冷温小电流地板解剖（v1.6）：摸底 / H20 静态表差 / H21 口径混合 / H22 共享结构
-python scripts/26_floor_round3.py --stage probe --dataset panasonic    # 约 6 min
-python scripts/26_floor_round3.py --stage h20  --dataset panasonic    # 秒级
-python scripts/26_floor_round3.py --stage h21  --dataset panasonic    # 约 3 min
-python scripts/26_floor_round3.py --stage h22  --dataset panasonic    # 约 3 min
-python scripts/27_round7_figures.py                       # 三张第七轮图
-
-# 滤波后残差口径的 EKFQ 复验（v1.7）：probe / H23 / H24 / H25
-python scripts/28_ekfq_round4.py --stage probe --dataset panasonic   # 约 8 min
-python scripts/28_ekfq_round4.py --stage h23  --dataset panasonic   # 秒级
-python scripts/28_ekfq_round4.py --stage h24  --dataset panasonic   # 约 8 min
-python scripts/28_ekfq_round4.py --stage h25  --dataset panasonic   # 秒级
-python scripts/29_round8_figures.py                       # 三张第八轮图
-
-# white 的物理定性（v1.8）：probe / H26 / H27 / H28
-python scripts/30_white_round5.py --stage probe --dataset panasonic   # 约 6 min
-python scripts/30_white_round5.py --stage h26  --dataset panasonic   # 秒级
-python scripts/30_white_round5.py --stage h27  --dataset panasonic   # 秒级
-python scripts/30_white_round5.py --stage h28  --dataset panasonic   # 秒级
-python scripts/31_round9_figures.py                       # 三张第九轮图
-
-# 快支路出口的实测边界（v1.9）：probe / H29 / H30 / H31
-python scripts/32_fastrc_round6.py --stage probe --dataset panasonic # 约 2 min
-python scripts/32_fastrc_round6.py --stage h29  --dataset panasonic  # 秒级
-python scripts/32_fastrc_round6.py --stage h30  --dataset panasonic  # 约 2 min
-python scripts/32_fastrc_round6.py --stage h31  --dataset panasonic  # 秒级
-python scripts/33_round10_figures.py                      # 三张第十轮图
-
-# white 重尾的滤波器侧对症（v1.10）：probe / H32 / H33 / H34
-python scripts/34_robust_round7.py --stage probe --dataset panasonic # 约 16 min
-python scripts/34_robust_round7.py --stage h32 --dataset panasonic   # 秒级
-python scripts/34_robust_round7.py --stage h33 --dataset panasonic   # 秒级
-python scripts/34_robust_round7.py --stage h34 --dataset panasonic   # 秒级
-python scripts/35_round11_figures.py                      # 三张第十一轮图
-
+# …完整分阶段命令清单见 reports/基准评测报告-A4.md"复现指南"
 python -m pytest tests -q                        # 154 项，不需要数据集
 ```
 
-## 局限
+## 目录结构
 
-- **两个化学体系，但不是受控对比。** NCA（Panasonic NCR18650PF）与 LFP（CALCE A123，
-  已老化到约 45 % SOH）在电芯、老化、工况长度、温度网格上**全都不同**，
-  所以 §10 只主张「方法可迁移」，不主张「LFP 更容易」。而「可迁移」现在带一个
-  明确前提：**从满电起步**（v1.2 §10.7：平台上电难 15–30 倍）。
-- **容量不确定性主导误差预算，在线辨识只在条件下可行。** 5–10 % 的容量误差值 3–7 pp
-  （增长律已精确验证）；真实数据上把容量建成滤波器状态反而吸收模型残差、结果更差（v1.2 §10.8）。
-  第五轮（§10.10）找到了出口条件：残差压进 20 mV 后（LFP 的 ΔOCV 修正），容量**高估** 5% 时
-  EKFQ 优于固定容量 EKF（1.63 vs 2.44 pp）—— 但只在高估侧成立，且 NCA（残差 41.7 mV）
-  不满足残差前提。第八轮（§10.13）修订阈值口径：20 mV 是**慢变开环**残差的线；
-  滤波后的真实约束是 **white/快变非线性 ≤ ~10 mV 且 odd ≤ ~5–10 mV**（慢/偶被
-  u/b 状态吸收、清白）。NCA 无一折进入可行区；LFP 的条件性复活需换滤波后口径
-  重测（未做）。外部锚点路线（v1.3 §10.9）已给出规格但尚未接真 SOH 估计器：A2 需交付
-  偏置 ≤ ±2 %、staleness（走速×刷新周期）≤ 4 %，NCA 另需 R̂0 保持 ±25 %；R1/τ 老化与
-  SOC 参照点重算语义仍未做。
-- **OCV 需要静置 —— LFP 还需要动态形状重标定。** 表来自 HPPC 静置末电压；工况中电芯从未
-  真正松弛到平衡。第七轮（§10.12）实测：已歇透静置的纯表差 ≤13.5 mV（**表本身自洽**），
-  低温 `dv`（到 −138 mV）是 **regime 之间**的基准不自洽（静置想 dv≈0、动态想 dv≈−146，
-  Δdv 142 mV @ −20）——它对开环地板的贡献是度量伪影（34% SSE），不是表错。
-  LFP 的 C/20 曲线在动态工况下**形状**就是错的（幅度 185 mV，静置看不见）；
-  `ShapeCorrected` 能修（37.4 → 17.6 mV）但还不是流水线默认步骤。NCA 的动态残差
-  是冷温大功率分布外外推（US06 −20 °C 到 242 mV）——平滑模型族外推不了，
-  出路是大倍率 HPPC 脉冲拟合 R0(i,T)，本轮未做。
-- **加 RC 阶数降不动残差，静态电流形状修正也不行。** `τ2` 在 NCA 的 24 折里 17 折、LFP 的 24 折里**全部**顶到 6000 s 上界，
-  但第三条支路与电流内阻项只换 LOO 残差 0–1.9%（参数顶界是模型族错的症状）；
-  v1.5 进一步否掉「Δ(i)/BV 形状静态修正」（42.1 → 45.0 mV，更差）——大功率残差
-  取决于**温度历史**（自热），不是瞬时电流的函数。逐样本 R(T_meas) 修正是有效
-  出路（us06 尾折 −58%、EKF 中位 −26%）。第七轮（§10.12）把冷温小电流地板
-  （59 mV @ −20）解剖成 34% 度量伪影 + 11% 未收敛状态 + 55% 真动态残差；
-  动态块逐工况**非共享**（(u1,u2) 核与逐温度偏置/形状的 LOO 迁移都失败），
-  加阶也修不动——开环地板只是滤波器残差的上界。第九轮（§10.14）定性了滤波后
-  最大块 white：**斜坡/边沿处的快极化缺失（τ≈5–10 s，表观 Δv/Δi 达稳态 r0 的
-  2–2.4 倍）**，出口细化为快极化支路 + 采样对齐（单快 RC 只削 21%），
-  滤波器侧配 innovation 鲁棒化对症重尾灌 q。
-- **电流偏置是给定的，不是估计的。** 滤波器只能靠电压反馈抵消它，不能估计它
-  （作为第 5 个状态与 SOC 在平台区共线，不可辨识）。
-- **收敛数字略偏乐观**：保留了 300 s 静置窗口；要「第一拍就得准」的版本用 `--keep-rest 0`。
-  而且每段都从满电起步，初值误差恰好落在陡坡上 —— 平台起步的情形见上面的压力测试
-  （12–36 pp 而不是 0.6–1.1 pp）。
+```
+src/bmsoc/        核心包：ecm / filters（EKF, UKF, AEKF）/ ocv / profiles / io_panasonic
+scripts/          00–35 分析流水线（勘察 → 辨识 → 基准 → 深化轮次）
+tests/            154 项合成数据单元测试（不需要数据集）
+reports/          基准评测报告-A4.md（完整表，§7/§10）
+results/metrics/  本文每个数字的 JSON/parquet 出处
+docs/figures/     README 配图
+```
+
+## 局限与负结果
+
+- **两种化学体系不是受控对比。** NCA（Panasonic NCR18650PF）与 LFP（CALCE A123，老化至 ~45% SOH）在电芯、年龄、工况长度、温度网格上都不同，§10 只声称"方法可迁移"，从不声称"LFP 更容易"。且"迁移"有明确前提：**从 100% SOC 起步**（平台中段上电难 15–30 倍，见"再往深处" v1.2）。
+- **容量不确定性主导误差预算，在线辨识只在条件下有效。** 5–10% 容量误差花 3–7 pp（增长律逐点验证）；真实数据上容量滤波器状态会吸收模型残差反而更差。退出条件：残差压到 20 mV 以下（LFP 的 ΔOCV）——此时 EKFQ 从 5% 高估起步胜过固定容量（1.63 vs 2.44 pp）；NCA（41.7 mV）不合格。滤波后残差约束：**white ≤ ~10 mV、odd ≤ ~5–10 mV**。外部锚点路线已规格化（A2：偏置 ≤ ±2%、陈旧度 ≤ 4%）但尚未接入真实 SOH 估计器。
+- **OCV 需要静置——LFP 还需要动态形状重标。** 表在沉降静置处自洽（gap ≤ 13.5 mV）；低温 `dv`（达 −138 mV）是*体制*不一致，开环 SSE 的 34% 是口径假象。LFP 的 C/20 *形状*在动态下是错的（185 mV）；`ShapeCorrected` 能修（37.4 → 17.6 mV）但还不是默认步骤。NCA 的动态残差是分布外低温大功率（US06 −20 °C，达 242 mV）。
+- **加 RC 支路不降残差——静态电流形状修正也不降。** 第三支路 + 电流相关 R0 只改 LOO 残差 0–1.9%（参数顶边界 = 模型族错了）；静态 Δ(i)/BV 形状修正让它*更差*（42.1 → 45.0 mV）。大功率残差取决于**温度历程**（自加热）；逐步 R(T_meas) 是有效修复（us06 尾部 −58%，EKF 中位 −26%）。
+- **电流偏置是给定的，不是估计的。** 滤波器只能靠电压反馈抵消（第 5 个偏置状态在平台上与 SOC 共线，不可观）。
+- **收敛数字略偏乐观**：保留了 300 s 静置窗；且每段从 100% SOC 起步，初值误差落在陡 OCV 斜率上。
+
+## 再往深处
+
+<details>
+<summary>v1.2 · 压力测试：中段上电 + 在线容量估计（EKFQ）</summary>
+
+**中段上电。** 把每段切到 SOC 0.7 / 0.5 / 0.3 起步后图景全变：LFP `init30` 从 0.56–1.10 pp 恶化到 **12–36 pp**（NCA：3.3 → 10–25 pp）。即便初值*正确*误差也涨 2–3×——平台启动的纯可观测性地板。且误差不对称：偏高 30 pp 比偏低难恢复约 2×。结论："LFP 不更难"是**满充起步**的性质，不是化学体系的性质。
+
+**在线容量估计。** 增长律 `err_end = −(1/s−1)(1−SOC_end)` 逐点验证（24 段 × 5 容量比，中位偏差 0.05 pp）。EKFQ 在合成数据上有效（10% 误差 → ±2%），真实数据上**比不作为更差**：12 pp vs 2.6 pp——38–53 mV 模型残差在电压上与慢容量漂移不可区分。
+
+</details>
+
+<details>
+<summary>v1.3 · 老化耦合与外部 SOH 锚点（A2 接口）</summary>
+
+`SoHSchedule`：分段常值 `Q̂(t)`/`R̂0(t)`，刷新之间零阶保持。容量误差律精确推广到漂移容量。A2 规格：**SOH 偏置 ≤ ±2%**、**陈旧度（漂移率 × 刷新周期）≤ 4%**——0.18 %/h 不刷新的 SOH 在 2 h 深放上花 13.8 pp。刷新只修积分*速率*——累积误差需要 SOC 参考事件重算。R̂0 翻倍：NCA +8.2 pp、LFP 仅 +1.4；低估 R0 便宜，高估不便宜。
+
+</details>
+
+<details>
+<summary>v1.4 · 残差解剖与 EKFQ 复验——四个假设被数据杀了三个</summary>
+
+充放电滞回只值 4.7 mV；第三 RC + 电流相关 R0 只改 LOO 残差 0–1.9%；慢残差既非极化也非热（R² ≈ 0.05）。LFP 真因：**OCV 曲线形状误差**——ΔOCV(soc) 重标（严格 LOO）把残差 37.4 → 17.6 mV。NCA 残差是分布外低温大功率（41.7 mV）。EKFQ 可行性阈值：**慢残差 ≤ 20 mV**。修正 LFP 模型后 EKFQ 从 5% 高估起步胜过固定容量（1.63 vs 2.44 pp）；NCA 负结果不变。判词变为"**残差 ≤ 20 mV 时 EKFQ 有效**"——条件工具；外部 SOH 锚点仍是默认路线。
+
+</details>
+
+<details>
+<summary>v1.5 · 残差二压与热判决</summary>
+
+BV 饱和是真的（HPPC 起始电阻随倍率收缩；−20 °C 10 A 时为低倍率值的 59%）但静态饱和形状修正不迁移（42.1 → 45.0 mV，更差）。原因：us06 −20 °C 电芯温度摆动 **20 K**，残差跟踪 2.54 mV/(K·A)·dT·i（R² = 0.66）——**自加热参数失配**。逐步 R(T_meas) 粉碎 us06 尾部（181 → 74.6 mV），EKF 中位 3.21 → 2.39 pp（−26%）。按残差*结构*修订 EKFQ 边界：慢/偶 ≤ 20–30 mV、奇（∝ i）≤ 10–15 mV——奇部毒化 q 快 4×，结构性重释 NCA 的 EKFQ 失败。
+
+</details>
+
+<details>
+<summary>v1.6 · 冷温小电流地板解剖（H20/H21/H22）</summary>
+
+−20 °C 工况开头静置段读数 e ≈ dv ≈ −122 mV 恒定 300 s，而 OCV 表在去掉 dv 后与实测静置吻合到 +4.4 mV：**小电流 SSE 的 34% 是体制混合的口径假象**。工况末 300 s 静置确实未收敛：另外 11% 是*状态*。剩余 55% 是真实动态地板（−20 °C 45.9 mV）。判词：**H20（表不自洽）否决**（gap ≤ 13.5 mV）、**H21（dv 体制混合）部分证实**、**H22（共享结构）否决**（LOO 迁移失败）。开环地板**不是**滤波器地板——只有 55% 那块进误差预算。
+
+</details>
+
+<details>
+<summary>v1.7 · 滤波后残差口径的 EKFQ 复验（H23/H24/H25）</summary>
+
+状态吸收 −20 °C 的 33%；滤波后余量几乎无慢成分（≤ 4.6 mV——v1.2 的"20 mV"前提不适用于滤波后口径），由 **white / 快非线性（29–64 mV）** 加低温超带的奇部（中位 23.4 mV）主导。选择性注入台架：**H24"奇部是主通道"否决**（仅奇部收敛 38%）、**H25"white 是主通道"部分证实**（仅 white 0%——杀死每一折）。全量回放精确复现真实失败（q̂ +38.6%、SOC 16.1 pp）。可行性：**white ≤ ~10 mV、odd ≤ ~5–10 mV**；无 NCA 折进入可行域。
+
+</details>
+
+<details>
+<summary>v1.8 · white 分量的物理辨识（H26/H27/H28）</summary>
+
+**H26"缺失快极化"证实**（ACF1 +0.60、高/低 |di/dt| 比 3.33；τ = 5 s 残差化快 RC 解释 white 的 R² = 0.38，砍 21% RMS）。H27 滞回仅边缘；H28 量测噪声**否决**（超额峰度 +7.7…+30.3）。物理身份：驱动电流是 ~0.5 A/s 斜坡不是阶跃——斜坡期间表观 dV/di 达 150–300 mV/A = 稳态 r0 的 2–2.4×。white 是斜坡与边缘上的缺失快极化（τ ≈ 5–10 s），低温放大。
+
+</details>
+
+<details>
+<summary>v1.9 · 快支路出口的实测边界（H29/H30/H31）</summary>
+
+**H29"快支路砍 white"否决**：3rc_fast 重拟合恰好砍 **0%**（τ3 在 4/5 冷折塌缩到 0.5–1 s 边界；β 跨折变号）。H30 部分：快分量是充分毒物（单独注入收敛 25%）但不是主体。H31（v/i 采样对齐）否决：δ̂ 处处亚采样。归因更新：white 的主体**不是**缺失快 RC（折先知上限 20%）——折特异非 RC 结构接管。
+
+</details>
+
+<details>
+<summary>v1.10 · 重尾 white 的滤波器侧处理（H32/H33/H34）</summary>
+
+滤波后残差峰度 6.5–29.3，3σ 尾能量占比 **35–52%**（高斯：2.9%）。**H32 部分**：gate3 砍中位 |q̂| 84%、SOC 比 0.19，但 q_ok 顶到 25%（线 30%）。**H33 成立**：winsorise 顶 5% 移除 27% 毒性，高斯化（同方差）移除 **64%**——毒物是重尾的*形状*不是方差。**H34 被护栏否决**：中位 SOC 改善 6%，但一折爆到 **+400%**（cap_scale=0.95——鲁棒更新裁掉了会修正容量的持续新息）。鲁棒 EKFQ 是**条件出口**，绝不盲目开启。
+
+</details>
 
 ## 引用与许可
 
-MIT。用到本代码请一并引用数据集：
+MIT。使用本代码请同时引用数据集：
 
 > Kollmeyer, P., et al. *Panasonic 18650PF Li-ion Battery Data.* McMaster University / UW-Madison.
 > https://doi.org/10.17632/wykht8y7tg.1
@@ -475,6 +331,7 @@ MIT。用到本代码请一并引用数据集：
 @misc{bmsoc2026,
   title  = {bmsoc: EKF/UKF/AEKF state-of-charge estimation with leave-one-profile-out benchmarking},
   year   = {2026},
+  url    = {https://github.com/ilo-love7/battery-soc-ekf-ukf},
   note   = {Reference implementation, 1.7--3.1 pp SOC RMSE at -30 pp initial error}
 }
 ```
